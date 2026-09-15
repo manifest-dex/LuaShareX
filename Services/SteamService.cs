@@ -1,206 +1,167 @@
 using System.IO;
-using System.Collections.Generic;
-using SteamKit2;
+using System.Text.RegularExpressions;
 using LuaShareX.Models;
 
 namespace LuaShareX.Services;
 
-public class SteamService
+public partial class SteamService
 {
-    private SteamClient? _steamClient;
-    private CallbackManager? _callbackManager;
-    private SteamUser? _steamUser;
-    private SteamApps? _steamApps;
+    public string? SteamInstallPath { get; private set; }
+    public string? CurrentSteamId { get; private set; }
 
-    public bool IsLogged_in { get; private set; }
-    public string Username { get; private set; } = "";
-    public ulong SteamId { get; private set; }
+    public bool IsLoaded { get; private set; }
 
-    public event Action? OnLogged_in;
+    public event Action? OnLoaded;
     public event Action<string>? OnError;
-    public event Action? OnDisconnected;
 
-    public async Task StartLogin(string username, string password, string authCode = "")
+    public void DetectSteam()
     {
-        _steamClient = new SteamClient();
-        _callbackManager = new CallbackManager(_steamClient);
-        _steamUser = _steamClient.GetHandler<SteamUser>();
-        _steamApps = _steamClient.GetHandler<SteamApps>();
-
-        _callbackManager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
-        _callbackManager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnectedCallback);
-        _callbackManager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
-
-        _steamClient.Connect();
-
-        _ = Task.Run(async () =>
+        var possiblePaths = new[]
         {
-            while (true)
+            @"C:\Program Files (x86)\Steam",
+            @"C:\Program Files\Steam",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Steam"),
+        };
+
+        foreach (var path in possiblePaths)
+        {
+            if (File.Exists(Path.Combine(path, "steam.exe")))
             {
-                _callbackManager.RunWaitCallbacks(TimeSpan.FromSeconds(1));
-                await Task.Delay(100);
-            }
-        });
-
-        await Task.Delay(2000);
-
-        _steamUser?.LogOn(new SteamUser.LogOnDetails
-        {
-            Username = username,
-            Password = password,
-            AuthCode = authCode,
-            ShouldRememberPassword = true,
-        });
-    }
-
-    public async Task<List<SteamGame>> GetOwnedGames()
-    {
-        var games = new List<SteamGame>();
-        if (_steamApps is null || !IsLogged_in) return games;
-
-        try
-        {
-                    var response = await _steamApps.PICSGetProductInfo(new SteamApps.PICSRequest(), new SteamApps.PICSRequest(), metaDataOnly: true);
-            foreach (var callback in response.Results!)
-            {
-                if (callback.Apps is null) continue;
-
-                foreach (var kvp in callback.Apps)
-                {
-                    var appInfo = kvp.Value;
-                    if (appInfo.KeyValues is null) continue;
-
-                    var name = appInfo.KeyValues["common"]["name"].AsString();
-                    if (string.IsNullOrEmpty(name)) continue;
-
-                    var game = new SteamGame
-                    {
-                        AppId = appInfo.ID,
-                        Name = name
-                    };
-
-                    var depots = appInfo.KeyValues["depots"];
-                    foreach (var depotChild in depots.Children)
-                    {
-                        if (depotChild.Name == "branches") continue;
-                        if (uint.TryParse(depotChild.Name, out var depotId))
-                        {
-                            var depotName = depotChild["name"].AsString() ?? $"Depot {depotId}";
-                            game.Depots.Add(new SteamDepot
-                            {
-                                DepotId = depotId,
-                                Name = depotName
-                            });
-                        }
-                    }
-
-                    var dlcNode = appInfo.KeyValues["common"]["dlc"];
-                    foreach (var dlcChild in dlcNode.Children)
-                    {
-                        if (uint.TryParse(dlcChild.Name, out var dlcId))
-                        {
-                            game.Dlcs.Add(new SteamDlc
-                            {
-                                AppId = dlcId,
-                                Name = $"DLC {dlcId}"
-                            });
-                        }
-                    }
-
-                    games.Add(game);
-                }
+                SteamInstallPath = path;
+                break;
             }
         }
-        catch { }
 
+        if (SteamInstallPath == null)
+        {
+            OnError?.Invoke("Steam not found. Please install Steam.");
+            return;
+        }
+
+        // Read loginusers.vdf to get current Steam ID
+        var loginUsersPath = Path.Combine(SteamInstallPath, "config", "loginusers.vdf");
+        if (File.Exists(loginUsersPath))
+        {
+            var content = File.ReadAllText(loginUsersPath);
+            var match = SteamIdRegex().Match(content);
+            if (match.Success)
+            {
+                CurrentSteamId = match.Groups[1].Value;
+            }
+        }
+    }
+
+    public List<SteamGame> GetInstalledGames()
+    {
+        var games = new List<SteamGame>();
+
+        if (SteamInstallPath == null) return games;
+
+        var libraryFoldersPath = Path.Combine(SteamInstallPath, "config", "libraryfolders.vdf");
+        if (!File.Exists(libraryFoldersPath)) return games;
+
+        var libraryPaths = ParseLibraryFolders(libraryFoldersPath);
+
+        foreach (var libPath in libraryPaths)
+        {
+            var steamAppsDir = Path.Combine(libPath, "steamapps");
+            if (!Directory.Exists(steamAppsDir)) continue;
+
+            foreach (var acfFile in Directory.GetFiles(steamAppsDir, "appmanifest_*.acf"))
+            {
+                try
+                {
+                    var game = ParseAppManifest(acfFile);
+                    if (game != null)
+                    {
+                        games.Add(game);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        IsLoaded = true;
+        OnLoaded?.Invoke();
         return games;
     }
 
-    public async Task<SteamGame?> GetGameDetails(uint appId)
+    private List<string> ParseLibraryFolders(string path)
     {
-        if (_steamApps is null) return null;
+        var paths = new List<string>();
 
-        try
+        // Always include the main Steam directory
+        if (SteamInstallPath != null)
+            paths.Add(SteamInstallPath);
+
+        var content = File.ReadAllText(path);
+
+        // Match "path" "value" entries
+        var matches = LibraryPathRegex().Matches(content);
+        foreach (Match match in matches)
         {
-            var response = await _steamApps.PICSGetProductInfo(new SteamApps.PICSRequest(appId), null);
-            foreach (var callback in response.Results!)
+            var libPath = match.Groups[1].Value.Replace("\\\\", "\\");
+            if (!paths.Contains(libPath) && Directory.Exists(libPath))
             {
-                if (callback.Apps is null || callback.Apps.Count == 0) continue;
-
-                var appInfo = callback.Apps.Values.First();
-                if (appInfo.KeyValues is null) continue;
-
-                var name = appInfo.KeyValues["common"]["name"].AsString();
-                if (string.IsNullOrEmpty(name)) continue;
-
-                var game = new SteamGame
-                {
-                    AppId = appId,
-                    Name = name
-                };
-
-                var depots = appInfo.KeyValues["depots"];
-                foreach (var depotChild in depots.Children)
-                {
-                    if (depotChild.Name == "branches") continue;
-                    if (uint.TryParse(depotChild.Name, out var depotId))
-                    {
-                        var depotName = depotChild["name"].AsString() ?? $"Depot {depotId}";
-                        game.Depots.Add(new SteamDepot
-                        {
-                            DepotId = depotId,
-                            Name = depotName
-                        });
-                    }
-                }
-
-                return game;
+                paths.Add(libPath);
             }
         }
-        catch { }
 
-        return null;
+        return paths;
+    }
+
+    private SteamGame? ParseAppManifest(string filePath)
+    {
+        var content = File.ReadAllText(filePath);
+
+        var appIdMatch = AppIdRegex().Match(content);
+        var nameMatch = NameRegex().Match(content);
+
+        if (!appIdMatch.Success || !nameMatch.Success) return null;
+
+        if (!uint.TryParse(appIdMatch.Groups[1].Value, out var appId)) return null;
+
+        var game = new SteamGame
+        {
+            AppId = appId,
+            Name = nameMatch.Groups[1].Value
+        };
+
+        // Parse installed depots
+        var depotMatches = DepotIdRegex().Matches(content);
+        foreach (Match depotMatch in depotMatches)
+        {
+            if (uint.TryParse(depotMatch.Groups[1].Value, out var depotId))
+            {
+                game.Depots.Add(new SteamDepot
+                {
+                    DepotId = depotId,
+                    Name = $"Depot {depotId}"
+                });
+            }
+        }
+
+        return game;
     }
 
     public void Disconnect()
     {
-        _steamClient?.Disconnect();
-        IsLogged_in = false;
+        IsLoaded = false;
     }
 
-    private void OnConnected(SteamClient.ConnectedCallback callback)
-    {
-    }
+    [GeneratedRegex(@"\t""(\d{17})""\s*\n\s*\{", RegexOptions.Compiled)]
+    private static partial Regex SteamIdRegex();
 
-    private void OnDisconnectedCallback(SteamClient.DisconnectedCallback callback)
-    {
-        IsLogged_in = false;
-        OnDisconnected?.Invoke();
-    }
+    [GeneratedRegex(@"""path""\s+""([^""]+)""", RegexOptions.Compiled)]
+    private static partial Regex LibraryPathRegex();
 
-    private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
-    {
-        switch (callback.Result)
-        {
-            case EResult.OK:
-                IsLogged_in = true;
-                SteamId = callback.ClientSteamID?.ConvertToUInt64() ?? 0;
-                Username = callback.ClientSteamID?.ConvertToUInt64().ToString() ?? "";
-                OnLogged_in?.Invoke();
-                break;
-            case EResult.AccountLogonDenied:
-                OnError?.Invoke("Steam Guard code required. Check your email.");
-                break;
-            case EResult.TwoFactorCodeMismatch:
-            case EResult.TwoFactorActivationCodeMismatch:
-                OnError?.Invoke("Invalid two-factor code.");
-                break;
-            case EResult.InvalidPassword:
-                OnError?.Invoke("Invalid password.");
-                break;
-            default:
-                OnError?.Invoke($"Login failed: {callback.Result}");
-                break;
-        }
-    }
+    [GeneratedRegex(@"""appid""\s+""(\d+)""", RegexOptions.Compiled)]
+    private static partial Regex AppIdRegex();
+
+    [GeneratedRegex(@"""name""\s+""([^""]+)""", RegexOptions.Compiled)]
+    private static partial Regex NameRegex();
+
+    [GeneratedRegex(@"^\t\t\t""(\d+)""\s*$", RegexOptions.Multiline | RegexOptions.Compiled)]
+    private static partial Regex DepotIdRegex();
 }

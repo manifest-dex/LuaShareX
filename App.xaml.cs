@@ -16,7 +16,6 @@ public partial class App : Application
         services.AddSingleton<LuaExportService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
-        services.AddTransient<LoginViewModel>();
         services.AddTransient<GamesViewModel>();
         _services = services.BuildServiceProvider();
     }

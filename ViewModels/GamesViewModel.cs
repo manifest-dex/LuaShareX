@@ -20,6 +20,7 @@ public partial class GamesViewModel : ObservableObject
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _statusMessage = "";
     [ObservableProperty] private int _selectedCount;
+    [ObservableProperty] private string _manualAppId = "";
 
     partial void OnSearchTextChanged(string value)
     {
@@ -34,24 +35,83 @@ public partial class GamesViewModel : ObservableObject
         _export = export;
     }
 
-    public async void LoadGames()
+    public void LoadGamesFromList(List<SteamGame> games)
     {
-        IsLoading = true;
-        StatusMessage = "Loading games...";
+        _allGames = games;
         Games.Clear();
+        foreach (var game in _allGames.OrderBy(g => g.Name))
+        {
+            Games.Add(game);
+        }
+        UpdateSelectedCount();
+    }
 
+    [RelayCommand]
+    private void RefreshGames()
+    {
+        if (_steam.SteamInstallPath == null)
+        {
+            StatusMessage = "Steam not found";
+            return;
+        }
+
+        StatusMessage = "Refreshing...";
+        var games = _steam.GetInstalledGames();
+        LoadGamesFromList(games);
+        StatusMessage = $"Loaded {games.Count} installed games";
+    }
+
+    [RelayCommand]
+    private async Task AddManualGame()
+    {
+        if (string.IsNullOrWhiteSpace(ManualAppId))
+        {
+            StatusMessage = "Enter an App ID";
+            return;
+        }
+
+        if (!uint.TryParse(ManualAppId.Trim(), out var appId))
+        {
+            StatusMessage = "Invalid App ID";
+            return;
+        }
+
+        if (_allGames.Any(g => g.AppId == appId))
+        {
+            StatusMessage = $"App {appId} already in list";
+            return;
+        }
+
+        IsLoading = true;
+        StatusMessage = $"Fetching details for App {appId}...";
+
+        // Try to get name from Steam Store API
+        var http = new System.Net.Http.HttpClient();
         try
         {
-            _allGames = await _steam.GetOwnedGames();
-            foreach (var game in _allGames.OrderBy(g => g.Name))
+            var url = $"https://store.steampowered.com/api/appdetails?appids={appId}";
+            var response = await http.GetStringAsync(url);
+            var doc = System.Text.Json.JsonDocument.Parse(response);
+
+            string name = $"App {appId}";
+            if (doc.RootElement.TryGetProperty(appId.ToString(), out var appData) &&
+                appData.TryGetProperty("success", out var success) &&
+                success.GetBoolean() &&
+                appData.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("name", out var nameEl))
             {
-                Games.Add(game);
+                name = nameEl.GetString() ?? name;
             }
-            StatusMessage = $"{Games.Count} games loaded";
+
+            var game = new SteamGame { AppId = appId, Name = name };
+            _allGames.Add(game);
+            Games.Add(game);
+            ManualAppId = "";
+            StatusMessage = $"Added {name}";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Error loading games: {ex.Message}";
+            StatusMessage = $"Error: {ex.Message}";
         }
         finally
         {
@@ -90,34 +150,6 @@ public partial class GamesViewModel : ObservableObject
     private void UpdateSelectedCount()
     {
         SelectedCount = Games.Count(g => g.IsSelected);
-    }
-
-    [RelayCommand]
-    private async Task FetchDetails()
-    {
-        var selected = Games.Where(g => g.IsSelected).ToList();
-        if (selected.Count == 0)
-        {
-            StatusMessage = "No games selected";
-            return;
-        }
-
-        IsLoading = true;
-        StatusMessage = $"Fetching details for {selected.Count} games...";
-
-        foreach (var game in selected)
-        {
-            StatusMessage = $"Fetching {game.Name}...";
-            var details = await _steam.GetGameDetails(game.AppId);
-            if (details != null)
-            {
-                game.Depots = details.Depots;
-                game.Dlcs = details.Dlcs;
-            }
-        }
-
-        IsLoading = false;
-        StatusMessage = $"Details fetched for {selected.Count} games";
     }
 
     [RelayCommand]

@@ -13,10 +13,9 @@ public partial class MainViewModel : ObservableObject
     private readonly LuaExportService _export;
 
     [ObservableProperty] private object? _currentView;
-    [ObservableProperty] private string _statusMessage = "Welcome to LuaShareX";
-    [ObservableProperty] private bool _isLoggedIn;
+    [ObservableProperty] private string _statusMessage = "Detecting Steam...";
+    [ObservableProperty] private bool _isLoaded;
 
-    public LoginViewModel LoginVm { get; }
     public GamesViewModel GamesVm { get; }
 
     public MainViewModel(SteamService steam, LuaExportService export)
@@ -24,47 +23,44 @@ public partial class MainViewModel : ObservableObject
         _steam = steam;
         _export = export;
 
-        LoginVm = new LoginViewModel(steam);
         GamesVm = new GamesViewModel(steam, export);
 
-        LoginVm.OnLoginSuccess += OnLoginSuccess;
-        LoginVm.OnError += OnError;
+        _steam.OnLoaded += () =>
+        {
+            IsLoaded = true;
+            StatusMessage = $"Loaded {GamesVm.Games.Count} installed games";
+        };
+        _steam.OnError += (err) =>
+        {
+            StatusMessage = err;
+        };
 
-        CurrentView = LoginVm;
-    }
-
-    private void OnLoginSuccess()
-    {
-        IsLoggedIn = true;
-        StatusMessage = $"Logged in as {_steam.Username}";
         CurrentView = GamesVm;
-        GamesVm.LoadGames();
+
+        // Auto-detect and load
+        _ = AutoLoad();
     }
 
-    private void OnError(string error)
+    private async Task AutoLoad()
     {
-        StatusMessage = error;
-    }
+        await Task.Delay(100); // Let UI initialize
 
-    [RelayCommand]
-    private void Logout()
-    {
-        _steam.Disconnect();
-        IsLoggedIn = false;
-        StatusMessage = "Logged out";
-        CurrentView = LoginVm;
-    }
+        _steam.DetectSteam();
 
-    [RelayCommand]
-    private void NavigateToLogin()
-    {
-        CurrentView = LoginVm;
-    }
+        if (_steam.SteamInstallPath == null)
+        {
+            StatusMessage = "Steam not found. Please install Steam.";
+            return;
+        }
 
-    [RelayCommand]
-    private void NavigateToGames()
-    {
-        if (IsLoggedIn)
-            CurrentView = GamesVm;
+        StatusMessage = "Loading installed games...";
+        var games = _steam.GetInstalledGames();
+
+        GamesVm.LoadGamesFromList(games);
+
+        if (games.Count > 0)
+            StatusMessage = $"Loaded {games.Count} installed games from Steam";
+        else
+            StatusMessage = "No installed games found";
     }
 }

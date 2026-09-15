@@ -14,7 +14,6 @@ public partial class GamesViewModel : ObservableObject
 {
     private readonly SteamService _steam;
     private readonly LuaExportService _export;
-    private readonly HubcapClient _hubcap = new();
 
     public ObservableCollection<SteamGame> Games { get; } = [];
 
@@ -154,7 +153,7 @@ public partial class GamesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ExportSelected()
+    private void ExportSelected()
     {
         var selected = Games.Where(g => g.IsSelected).ToList();
         if (selected.Count == 0)
@@ -162,45 +161,6 @@ public partial class GamesViewModel : ObservableObject
             StatusMessage = "No games selected for export";
             return;
         }
-
-        IsLoading = true;
-
-        // Fetch depot keys from Hubcap for each selected game
-        int fetched = 0;
-        foreach (var game in selected)
-        {
-            StatusMessage = $"Fetching depot keys for {game.Name}...";
-            var depotKeys = await _hubcap.GetDepotKeysAsync(game.AppId);
-
-            if (depotKeys.Count > 0)
-            {
-                // Apply depot keys to the game's depots
-                foreach (var depot in game.Depots)
-                {
-                    if (depotKeys.TryGetValue(depot.DepotId, out var key))
-                    {
-                        depot.DepotKey = key;
-                        fetched++;
-                    }
-                }
-
-                // If no depots were parsed from local files, create them from Hubcap keys
-                if (game.Depots.Count == 0)
-                {
-                    foreach (var kvp in depotKeys)
-                    {
-                        game.Depots.Add(new SteamDepot
-                        {
-                            DepotId = kvp.Key,
-                            Name = $"Depot {kvp.Key}",
-                            DepotKey = kvp.Value
-                        });
-                    }
-                }
-            }
-        }
-
-        IsLoading = false;
 
         var content = selected.Count == 1
             ? _export.Export(selected[0])
@@ -218,7 +178,7 @@ public partial class GamesViewModel : ObservableObject
         if (dialog.ShowDialog() == true)
         {
             _export.SaveToFile(content, dialog.FileName);
-            StatusMessage = $"Exported {selected.Count} game(s) ({fetched} depot keys) to {Path.GetFileName(dialog.FileName)}";
+            StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(dialog.FileName)}";
         }
     }
 

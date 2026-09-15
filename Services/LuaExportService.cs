@@ -15,34 +15,27 @@ public class LuaExportService
         sb.AppendLine();
 
         // Main app
-        if (!string.IsNullOrEmpty(game.Token))
-            sb.AppendLine($"addappid({game.AppId}, 1, \"{game.Token}\") -- {game.Name}");
-        else
-            sb.AppendLine($"addappid({game.AppId}) -- {game.Name}");
-
+        sb.AppendLine($"addappid({game.AppId}) -- {game.Name}");
         sb.AppendLine();
 
         // Depots
-        var depotsWithKeys = game.Depots.Where(d => !string.IsNullOrEmpty(d.DepotKey)).ToList();
-        var depotsWithoutKeys = game.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey)).ToList();
-
-        if (depotsWithKeys.Count > 0 || depotsWithoutKeys.Count > 0)
+        if (game.Depots.Count > 0)
         {
             sb.AppendLine("-- Depots Section");
-
-            foreach (var depot in depotsWithKeys)
+            foreach (var depot in game.Depots)
             {
-                if (depot.IsShared)
-                    sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name} (Shared from {depot.SharedFrom})");
+                if (!string.IsNullOrEmpty(depot.DepotKey))
+                {
+                    if (depot.IsShared)
+                        sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name} (Shared from {depot.SharedFrom})");
+                    else
+                        sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name}");
+                }
                 else
-                    sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name}");
+                {
+                    sb.AppendLine($"addappid({depot.DepotId}) -- {depot.Name}");
+                }
             }
-
-            foreach (var depot in depotsWithoutKeys)
-            {
-                sb.AppendLine($"addappid({depot.DepotId}) -- {depot.Name}");
-            }
-
             sb.AppendLine();
         }
 

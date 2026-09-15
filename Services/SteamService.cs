@@ -8,11 +8,12 @@ public partial class SteamService
 {
     public string? SteamInstallPath { get; private set; }
     public string? CurrentSteamId { get; private set; }
-
     public bool IsLoaded { get; private set; }
 
     public event Action? OnLoaded;
     public event Action<string>? OnError;
+
+    private Dictionary<uint, string> _depotKeys = new();
 
     public void DetectSteam()
     {
@@ -39,16 +40,84 @@ public partial class SteamService
             return;
         }
 
-        var loginUsersPath = Path.Combine(SteamInstallPath, "config", "loginusers.vdf");
-        if (File.Exists(loginUsersPath))
+        ReadDepotKeysFromConfig();
+        ReadStPlugInLuaFiles();
+        ReadLoginUsers();
+    }
+
+    private void ReadDepotKeysFromConfig()
+    {
+        _depotKeys.Clear();
+        var configPath = Path.Combine(SteamInstallPath!, "config", "config.vdf");
+        if (!File.Exists(configPath)) return;
+
+        var content = File.ReadAllText(configPath);
+
+        // Find the depots section
+        var depotsMatch = DepotsSectionRegex().Match(content);
+        if (!depotsMatch.Success) return;
+
+        var depotsBlock = depotsMatch.Groups[1].Value;
+
+        // Parse each depot: "depotId" { "DecryptionKey" "key" }
+        var matches = DepotKeyEntryRegex().Matches(depotsBlock);
+        foreach (Match match in matches)
         {
-            var content = File.ReadAllText(loginUsersPath);
-            var match = SteamIdRegex().Match(content);
-            if (match.Success)
+            if (uint.TryParse(match.Groups[1].Value, out var depotId))
             {
-                CurrentSteamId = match.Groups[1].Value;
+                _depotKeys[depotId] = match.Groups[2].Value;
             }
         }
+    }
+
+    private void ReadStPlugInLuaFiles()
+    {
+        var stPlugInDir = Path.Combine(SteamInstallPath!, "config", "stplug-in");
+        if (!Directory.Exists(stPlugInDir)) return;
+
+        foreach (var luaFile in Directory.GetFiles(stPlugInDir, "*.lua"))
+        {
+            try
+            {
+                var fileName = Path.GetFileNameWithoutExtension(luaFile);
+                if (!uint.TryParse(fileName, out var appId)) continue;
+
+                var content = File.ReadAllText(luaFile);
+
+                // Parse addappid(id, 1, "key") entries
+                var matches = DepotEntryRegex().Matches(content);
+                foreach (Match match in matches)
+                {
+                    if (uint.TryParse(match.Groups[1].Value, out var depotId))
+                    {
+                        var key = match.Groups[2].Value;
+                        if (!_depotKeys.ContainsKey(depotId))
+                        {
+                            _depotKeys[depotId] = key;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+    }
+
+    private void ReadLoginUsers()
+    {
+        var loginUsersPath = Path.Combine(SteamInstallPath!, "config", "loginusers.vdf");
+        if (!File.Exists(loginUsersPath)) return;
+
+        var content = File.ReadAllText(loginUsersPath);
+        var match = SteamIdRegex().Match(content);
+        if (match.Success)
+        {
+            CurrentSteamId = match.Groups[1].Value;
+        }
+    }
+
+    public string? GetDepotKey(uint depotId)
+    {
+        return _depotKeys.TryGetValue(depotId, out var key) ? key : null;
     }
 
     public List<SteamGame> GetInstalledGames()
@@ -61,7 +130,6 @@ public partial class SteamService
         if (!File.Exists(libraryFoldersPath)) return games;
 
         var libraryPaths = ParseLibraryFolders(libraryFoldersPath);
-        var stPlugInDepots = ReadStPlugInLuaFiles();
 
         foreach (var libPath in libraryPaths)
         {
@@ -75,11 +143,16 @@ public partial class SteamService
                     var game = ParseAppManifest(acfFile);
                     if (game != null)
                     {
-                        if (stPlugInDepots.TryGetValue(game.AppId, out var depotData))
+                        // Merge depot keys from config.vdf
+                        foreach (var depot in game.Depots)
                         {
-                            game.Token = depotData.Token;
-                            game.Depots = depotData.Depots;
+                            var key = GetDepotKey(depot.DepotId);
+                            if (key != null)
+                            {
+                                depot.DepotKey = key;
+                            }
                         }
+
                         games.Add(game);
                     }
                 }
@@ -90,55 +163,6 @@ public partial class SteamService
         IsLoaded = true;
         OnLoaded?.Invoke();
         return games;
-    }
-
-    private Dictionary<uint, (string Token, List<SteamDepot> Depots)> ReadStPlugInLuaFiles()
-    {
-        var result = new Dictionary<uint, (string, List<SteamDepot>)>();
-
-        var stPlugInDir = Path.Combine(SteamInstallPath!, "config", "stplug-in");
-        if (!Directory.Exists(stPlugInDir)) return result;
-
-        foreach (var luaFile in Directory.GetFiles(stPlugInDir, "*.lua"))
-        {
-            try
-            {
-                var fileName = Path.GetFileNameWithoutExtension(luaFile);
-                if (!uint.TryParse(fileName, out var appId)) continue;
-
-                var content = File.ReadAllText(luaFile);
-                var depots = new List<SteamDepot>();
-                string token = "";
-
-                // Parse addappid(appId, 1, "token") for main app token
-                var tokenMatch = AppTokenRegex().Match(content);
-                if (tokenMatch.Success)
-                {
-                    token = tokenMatch.Groups[1].Value;
-                }
-
-                // Parse all depot entries: addappid(id, 1, "key") -- Name
-                var depotMatches = DepotEntryRegex().Matches(content);
-                foreach (Match match in depotMatches)
-                {
-                    if (uint.TryParse(match.Groups[1].Value, out var depotId) && depotId != appId)
-                    {
-                        var name = match.Groups[3].Success ? match.Groups[3].Value.Trim() : $"Depot {depotId}";
-                        depots.Add(new SteamDepot
-                        {
-                            DepotId = depotId,
-                            Name = name,
-                            DepotKey = match.Groups[2].Value
-                        });
-                    }
-                }
-
-                result[appId] = (token, depots);
-            }
-            catch { }
-        }
-
-        return result;
     }
 
     private List<string> ParseLibraryFolders(string path)
@@ -200,6 +224,7 @@ public partial class SteamService
         IsLoaded = false;
     }
 
+    // Regex patterns
     [GeneratedRegex(@"\t""(\d{17})""\s*\n\s*\{", RegexOptions.Compiled)]
     private static partial Regex SteamIdRegex();
 
@@ -215,9 +240,14 @@ public partial class SteamService
     [GeneratedRegex(@"^\t\t\t""(\d+)""\s*$", RegexOptions.Multiline | RegexOptions.Compiled)]
     private static partial Regex DepotIdRegex();
 
-    [GeneratedRegex(@"addappid\(\d+,\s*1,\s*""([^""]+)""\)", RegexOptions.Compiled)]
-    private static partial Regex AppTokenRegex();
-
-    [GeneratedRegex(@"addappid\((\d+),\s*1,\s*""([^""]+)""\)\s*(?:--\s*(.+))?", RegexOptions.Compiled)]
+    [GeneratedRegex(@"addappid\((\d+),\s*1,\s*""([^""]+)""\)", RegexOptions.Compiled)]
     private static partial Regex DepotEntryRegex();
+
+    // Match "depots" { ... } block - non-greedy
+    [GeneratedRegex(@"""depots""\s*\r?\n\s*\{([\s\S]*?)\n\t\t\t\}", RegexOptions.Compiled)]
+    private static partial Regex DepotsSectionRegex();
+
+    // Match "depotId" { "DecryptionKey" "key" }
+    [GeneratedRegex(@"""(\d+)""\s*\{[^}]*?""DecryptionKey""\s*""([^""]+)""", RegexOptions.Compiled)]
+    private static partial Regex DepotKeyEntryRegex();
 }

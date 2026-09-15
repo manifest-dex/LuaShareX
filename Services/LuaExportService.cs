@@ -11,7 +11,7 @@ public class LuaExportService
         var sb = new StringBuilder();
 
         sb.AppendLine($"-- App Name: {game.Name}");
-        sb.AppendLine($"-- Created by LuaShareX (https://manifestdex.com)");
+        sb.AppendLine($"-- Created by LuaShareX (https://github.com/thecloudyy/LuaShareX)");
         sb.AppendLine();
 
         // Main app
@@ -23,23 +23,26 @@ public class LuaExportService
         sb.AppendLine();
 
         // Depots
-        if (game.Depots.Count > 0)
+        var depotsWithKeys = game.Depots.Where(d => !string.IsNullOrEmpty(d.DepotKey)).ToList();
+        var depotsWithoutKeys = game.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey)).ToList();
+
+        if (depotsWithKeys.Count > 0 || depotsWithoutKeys.Count > 0)
         {
             sb.AppendLine("-- Depots Section");
-            foreach (var depot in game.Depots)
+
+            foreach (var depot in depotsWithKeys)
             {
-                if (!string.IsNullOrEmpty(depot.DepotKey))
-                {
-                    if (depot.IsShared)
-                        sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name} (Shared from {depot.SharedFrom})");
-                    else
-                        sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name}");
-                }
+                if (depot.IsShared)
+                    sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name} (Shared from {depot.SharedFrom})");
                 else
-                {
-                    sb.AppendLine($"addappid({depot.DepotId}) -- {depot.Name}");
-                }
+                    sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name}");
             }
+
+            foreach (var depot in depotsWithoutKeys)
+            {
+                sb.AppendLine($"addappid({depot.DepotId}) -- {depot.Name}");
+            }
+
             sb.AppendLine();
         }
 
@@ -75,7 +78,7 @@ public class LuaExportService
     {
         var sb = new StringBuilder();
         sb.AppendLine($"-- LuaShareX Export ({games.Count} games)");
-        sb.AppendLine($"-- Created by LuaShareX (https://manifestdex.com)");
+        sb.AppendLine($"-- Created by LuaShareX (https://github.com/thecloudyy/LuaShareX)");
         sb.AppendLine($"-- Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine();
 

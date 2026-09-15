@@ -35,11 +35,10 @@ public partial class SteamService
 
         if (SteamInstallPath == null)
         {
-            OnError?.Invoke("Steam not found. Please install Steam.");
+            OnError?.Invoke("Steam not found.");
             return;
         }
 
-        // Read loginusers.vdf to get current Steam ID
         var loginUsersPath = Path.Combine(SteamInstallPath, "config", "loginusers.vdf");
         if (File.Exists(loginUsersPath))
         {
@@ -62,6 +61,7 @@ public partial class SteamService
         if (!File.Exists(libraryFoldersPath)) return games;
 
         var libraryPaths = ParseLibraryFolders(libraryFoldersPath);
+        var stPlugInDepots = ReadStPlugInLuaFiles();
 
         foreach (var libPath in libraryPaths)
         {
@@ -75,6 +75,11 @@ public partial class SteamService
                     var game = ParseAppManifest(acfFile);
                     if (game != null)
                     {
+                        if (stPlugInDepots.TryGetValue(game.AppId, out var depotData))
+                        {
+                            game.Token = depotData.Token;
+                            game.Depots = depotData.Depots;
+                        }
                         games.Add(game);
                     }
                 }
@@ -87,17 +92,63 @@ public partial class SteamService
         return games;
     }
 
+    private Dictionary<uint, (string Token, List<SteamDepot> Depots)> ReadStPlugInLuaFiles()
+    {
+        var result = new Dictionary<uint, (string, List<SteamDepot>)>();
+
+        var stPlugInDir = Path.Combine(SteamInstallPath!, "config", "stplug-in");
+        if (!Directory.Exists(stPlugInDir)) return result;
+
+        foreach (var luaFile in Directory.GetFiles(stPlugInDir, "*.lua"))
+        {
+            try
+            {
+                var fileName = Path.GetFileNameWithoutExtension(luaFile);
+                if (!uint.TryParse(fileName, out var appId)) continue;
+
+                var content = File.ReadAllText(luaFile);
+                var depots = new List<SteamDepot>();
+                string token = "";
+
+                // Parse addappid(appId, 1, "token") for main app token
+                var tokenMatch = AppTokenRegex().Match(content);
+                if (tokenMatch.Success)
+                {
+                    token = tokenMatch.Groups[1].Value;
+                }
+
+                // Parse all depot entries: addappid(id, 1, "key") -- Name
+                var depotMatches = DepotEntryRegex().Matches(content);
+                foreach (Match match in depotMatches)
+                {
+                    if (uint.TryParse(match.Groups[1].Value, out var depotId) && depotId != appId)
+                    {
+                        var name = match.Groups[3].Success ? match.Groups[3].Value.Trim() : $"Depot {depotId}";
+                        depots.Add(new SteamDepot
+                        {
+                            DepotId = depotId,
+                            Name = name,
+                            DepotKey = match.Groups[2].Value
+                        });
+                    }
+                }
+
+                result[appId] = (token, depots);
+            }
+            catch { }
+        }
+
+        return result;
+    }
+
     private List<string> ParseLibraryFolders(string path)
     {
         var paths = new List<string>();
 
-        // Always include the main Steam directory
         if (SteamInstallPath != null)
             paths.Add(SteamInstallPath);
 
         var content = File.ReadAllText(path);
-
-        // Match "path" "value" entries
         var matches = LibraryPathRegex().Matches(content);
         foreach (Match match in matches)
         {
@@ -128,7 +179,6 @@ public partial class SteamService
             Name = nameMatch.Groups[1].Value
         };
 
-        // Parse installed depots
         var depotMatches = DepotIdRegex().Matches(content);
         foreach (Match depotMatch in depotMatches)
         {
@@ -164,4 +214,10 @@ public partial class SteamService
 
     [GeneratedRegex(@"^\t\t\t""(\d+)""\s*$", RegexOptions.Multiline | RegexOptions.Compiled)]
     private static partial Regex DepotIdRegex();
+
+    [GeneratedRegex(@"addappid\(\d+,\s*1,\s*""([^""]+)""\)", RegexOptions.Compiled)]
+    private static partial Regex AppTokenRegex();
+
+    [GeneratedRegex(@"addappid\((\d+),\s*1,\s*""([^""]+)""\)\s*(?:--\s*(.+))?", RegexOptions.Compiled)]
+    private static partial Regex DepotEntryRegex();
 }

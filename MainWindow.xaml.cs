@@ -12,19 +12,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         InitializeComponent();
     }
 
-    private void GamesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm && vm.CurrentView is GamesViewModel gamesVm)
-        {
-            gamesVm.SelectionChangedCommand.Execute(null);
-        }
-    }
+    public Wpf.Ui.Controls.SnackbarPresenter ToastPresenter => RootSnackbar;
 
-    private void ManualAppId_KeyDown(object sender, KeyEventArgs e)
+    private void Tile_Click(object sender, MouseButtonEventArgs e)
     {
-        if (e.Key == Key.Enter && DataContext is MainViewModel vm && vm.CurrentView is GamesViewModel gamesVm)
+        if (sender is Border { DataContext: GameTileViewModel tile } &&
+            DataContext is MainViewModel vm)
         {
-            gamesVm.AddManualGameCommand.Execute(null);
+            vm.GamesVm.ToggleSelectGameCommand.Execute(tile);
         }
     }
 }

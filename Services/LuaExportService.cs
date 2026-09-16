@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using LuaShareX.Models;
 
@@ -22,14 +23,13 @@ public class LuaExportService
         else
             sb.AppendLine($"addappid({game.AppId})");
 
-        sb.AppendLine();
-
-        // Depots with keys (non-redistributable)
+        // Depots split by Steam's own classification (sharedinstall flag /
+        // shared from a Tool-type app), resolved in SteamService. No names.
         var gameDepots = game.Depots
-            .Where(d => !IsRedistributable(d.Name))
+            .Where(d => !d.IsRedistributable)
             .ToList();
         var redistDepots = game.Depots
-            .Where(d => IsRedistributable(d.Name))
+            .Where(d => d.IsRedistributable)
             .ToList();
 
         if (gameDepots.Count > 0)
@@ -46,7 +46,6 @@ public class LuaExportService
 
         if (redistDepots.Count > 0)
         {
-            sb.AppendLine();
             sb.AppendLine("-- Redistributable Depots");
             foreach (var depot in redistDepots)
             {
@@ -57,7 +56,7 @@ public class LuaExportService
             }
         }
 
-        return sb.ToString();
+        return sb.ToString().TrimEnd() + Environment.NewLine;
     }
 
     public string ExportMultiple(List<SteamGame> games)
@@ -71,16 +70,22 @@ public class LuaExportService
         return sb.ToString();
     }
 
-    private static bool IsRedistributable(string name)
-    {
-        return name.Contains("Redist", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("VC 20", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Common Redistributable", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Steamworks", StringComparison.OrdinalIgnoreCase);
-    }
-
     public void SaveToFile(string content, string filePath)
     {
         File.WriteAllText(filePath, content, Encoding.UTF8);
+    }
+
+    /// <summary>
+    /// Packs one &lt;appid&gt;.lua per game into a zip archive.
+    /// </summary>
+    public void SaveMultipleToZip(List<SteamGame> games, string zipPath)
+    {
+        using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        foreach (var game in games)
+        {
+            var entry = zip.CreateEntry($"{game.AppId}.lua", CompressionLevel.Optimal);
+            using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+            writer.Write(Export(game));
+        }
     }
 }

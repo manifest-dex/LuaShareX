@@ -14,6 +14,9 @@ public partial class App : Application
         var services = new ServiceCollection();
         services.AddSingleton<SteamService>();
         services.AddSingleton<LuaExportService>();
+        services.AddSingleton<CoverCache>();
+        services.AddSingleton<ToastService>();
+        services.AddSingleton<UpdateService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         services.AddTransient<GamesViewModel>();
@@ -23,8 +26,17 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        var mainWindow = _services.GetRequiredService<MainWindow>();
-        mainWindow.DataContext = _services.GetRequiredService<MainViewModel>();
-        mainWindow.Show();
+        try
+        {
+            var mainWindow = _services.GetRequiredService<MainWindow>();
+            mainWindow.DataContext = _services.GetRequiredService<MainViewModel>();
+            _services.GetRequiredService<ToastService>().Attach(mainWindow.ToastPresenter);
+            mainWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Startup error: {ex}", "LuaShareX", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown();
+        }
     }
 }

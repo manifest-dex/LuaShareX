@@ -10,7 +10,10 @@
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
             <local:BoolToVisibilityConverter x:Key="BoolToVis" />
-            <local:InverseBoolConverter x:Key="InverseBool" />
+            <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+            <local:NullToVisibilityConverter x:Key="NullToVis" />
+            <local:BoolToAppearanceConverter x:Key="BoolToAppearance" />
+            <local:InverseBoolToAppearanceConverter x:Key="InverseBoolToAppearance" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

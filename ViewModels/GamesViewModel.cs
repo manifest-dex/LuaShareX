@@ -1,5 +1,4 @@
 using System.IO;
-using System.Net.Http;
 using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -14,37 +13,70 @@ public partial class GamesViewModel : ObservableObject
 {
     private readonly SteamService _steam;
     private readonly LuaExportService _export;
+    private readonly CoverCache _covers;
+    private readonly ToastService _toast;
 
-    public ObservableCollection<SteamGame> Games { get; } = [];
+    public ObservableCollection<GameTileViewModel> Games { get; } = [];
 
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _statusMessage = "";
     [ObservableProperty] private int _selectedCount;
-    [ObservableProperty] private string _manualAppId = "";
+    [ObservableProperty] private string _selectAllText = "Select All";
+    [ObservableProperty] private string _exportText = "Export .lua";
 
     partial void OnSearchTextChanged(string value)
     {
         FilterGames();
     }
 
-    private List<SteamGame> _allGames = [];
+    private List<GameTileViewModel> _allTiles = [];
 
-    public GamesViewModel(SteamService steam, LuaExportService export)
+    public GamesViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast)
     {
         _steam = steam;
         _export = export;
+        _covers = covers;
+        _toast = toast;
     }
 
     public void LoadGamesFromList(List<SteamGame> games)
     {
-        _allGames = games;
+        _allTiles = games
+            .OrderBy(g => g.Name)
+            .Select(g =>
+            {
+                var tile = new GameTileViewModel(g);
+                tile.SelectionChanged += _ => UpdateSelectedCount();
+                tile.RefreshFromGame();
+                return tile;
+            })
+            .ToList();
+
         Games.Clear();
-        foreach (var game in _allGames.OrderBy(g => g.Name))
-        {
-            Games.Add(game);
-        }
+        foreach (var tile in _allTiles)
+            Games.Add(tile);
+
         UpdateSelectedCount();
+        _ = PrefetchCoversAsync(_allTiles);
+    }
+
+    private async Task PrefetchCoversAsync(List<GameTileViewModel> tiles)
+    {
+        using var gate = new SemaphoreSlim(6);
+        var tasks = tiles.Select(async tile =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                await tile.EnsureCoverAsync(_covers);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        await Task.WhenAll(tasks);
     }
 
     [RelayCommand]
@@ -53,81 +85,35 @@ public partial class GamesViewModel : ObservableObject
         if (_steam.SteamInstallPath == null)
         {
             StatusMessage = "Steam not found";
+            _toast.Show("Refresh", "Steam not found.", error: true);
             return;
         }
 
         StatusMessage = "Refreshing...";
-        var games = _steam.GetInstalledGames();
+        var games = _steam.OwnedAppCount > 0
+            ? _steam.GetLicensedGames()
+            : _steam.GetInstalledGames();
         LoadGamesFromList(games);
-        StatusMessage = $"Loaded {games.Count} installed games";
+        StatusMessage = $"Loaded {games.Count} games";
+        _toast.Show("Refresh", $"Loaded {games.Count} games.");
     }
 
     [RelayCommand]
-    private async Task AddManualGame()
+    private void ToggleSelectGame(GameTileViewModel? tile)
     {
-        if (string.IsNullOrWhiteSpace(ManualAppId))
-        {
-            StatusMessage = "Enter an App ID";
-            return;
-        }
-
-        if (!uint.TryParse(ManualAppId.Trim(), out var appId))
-        {
-            StatusMessage = "Invalid App ID";
-            return;
-        }
-
-        if (_allGames.Any(g => g.AppId == appId))
-        {
-            StatusMessage = $"App {appId} already in list";
-            return;
-        }
-
-        IsLoading = true;
-        StatusMessage = $"Fetching details for App {appId}...";
-
-        var http = new HttpClient();
-        try
-        {
-            var url = $"https://store.steampowered.com/api/appdetails?appids={appId}";
-            var response = await http.GetStringAsync(url);
-            var doc = System.Text.Json.JsonDocument.Parse(response);
-
-            string name = $"App {appId}";
-            if (doc.RootElement.TryGetProperty(appId.ToString(), out var appData) &&
-                appData.TryGetProperty("success", out var success) &&
-                success.GetBoolean() &&
-                appData.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("name", out var nameEl))
-            {
-                name = nameEl.GetString() ?? name;
-            }
-
-            var game = new SteamGame { AppId = appId, Name = name };
-            _allGames.Add(game);
-            Games.Add(game);
-            ManualAppId = "";
-            StatusMessage = $"Added {name}";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            IsLoading = false;
-        }
+        if (tile == null) return;
+        tile.IsSelected = !tile.IsSelected;
     }
 
     private void FilterGames()
     {
         Games.Clear();
         var filtered = string.IsNullOrWhiteSpace(SearchText)
-            ? _allGames
-            : _allGames.Where(g => g.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToList();
+            ? _allTiles
+            : _allTiles.Where(t => t.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToList();
 
-        foreach (var game in filtered.OrderBy(g => g.Name))
-            Games.Add(game);
+        foreach (var tile in filtered.OrderBy(t => t.Name))
+            Games.Add(tile);
 
         UpdateSelectedCount();
     }
@@ -135,62 +121,143 @@ public partial class GamesViewModel : ObservableObject
     [RelayCommand]
     private void ToggleSelectAll()
     {
-        var allSelected = Games.All(g => g.IsSelected);
-        foreach (var game in Games)
-            game.IsSelected = !allSelected;
+        var allSelected = Games.All(t => t.IsSelected);
+        foreach (var tile in Games)
+            tile.IsSelected = !allSelected;
         UpdateSelectedCount();
     }
 
     [RelayCommand]
-    private void SelectionChanged()
+    private void CopyAppId(GameTileViewModel? tile)
     {
-        UpdateSelectedCount();
+        if (tile == null) return;
+        Clipboard.SetText(tile.AppId.ToString());
+        StatusMessage = $"Copied App ID {tile.AppId}";
+        _toast.Show("Copy", $"Copied App ID {tile.AppId}.");
+    }
+
+    [RelayCommand]
+    private void OpenStorePage(GameTileViewModel? tile)
+    {
+        if (tile == null) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = $"https://store.steampowered.com/app/{tile.AppId}",
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not open store page: {ex.Message}";
+        }
     }
 
     private void UpdateSelectedCount()
     {
-        SelectedCount = Games.Count(g => g.IsSelected);
+        SelectedCount = _allTiles.Count(t => t.IsSelected);
+        SelectAllText = Games.Count > 0 && Games.All(t => t.IsSelected)
+            ? "Unselect All"
+            : "Select All";
+        ExportText = SelectedCount > 1 ? "Export .zip" : "Export .lua";
     }
 
     [RelayCommand]
-    private void ExportSelected()
+    private async Task ExportSelected()
     {
-        var selected = Games.Where(g => g.IsSelected).ToList();
+        var selected = Games.Where(t => t.IsSelected).Select(t => t.Game).ToList();
         if (selected.Count == 0)
         {
             StatusMessage = "No games selected for export";
+            _toast.Show("Export", "No games selected for export.", error: true);
             return;
         }
 
-        var content = selected.Count == 1
-            ? _export.Export(selected[0])
-            : _export.ExportMultiple(selected);
-
-        var dialog = new SaveFileDialog
+        IsLoading = true;
+        StatusMessage = $"Fetching keys for {selected.Count} game(s)...";
+        try
         {
-            Filter = "Lua files (*.lua)|*.lua|All files (*.*)|*.*",
-            DefaultExt = ".lua",
-            FileName = selected.Count == 1
-                ? $"{selected[0].AppId}.lua"
-                : $"luasharex_export_{DateTime.Now:yyyyMMdd_HHmmss}.lua"
+            await _steam.EnsureExportDataAsync(selected);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Key fetch failed: {ex.Message}";
+            _toast.Show("Export", $"Key fetch failed: {ex.Message}", error: true);
+            return;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+
+        foreach (var tile in Games.Where(t => t.IsSelected))
+            tile.RefreshFromGame();
+
+        if (selected.Count == 1)
+        {
+            var content = _export.Export(selected[0]);
+            var dialog = new SaveFileDialog
+            {
+                Filter = "Lua files (*.lua)|*.lua|All files (*.*)|*.*",
+                DefaultExt = ".lua",
+                FileName = $"{selected[0].AppId}.lua"
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                _export.SaveToFile(content, dialog.FileName);
+                StatusMessage = $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}";
+                _toast.Show("Export", $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}.");
+            }
+            return;
+        }
+
+        var zipDialog = new SaveFileDialog
+        {
+            Filter = "Zip files (*.zip)|*.zip|All files (*.*)|*.*",
+            DefaultExt = ".zip",
+            FileName = $"luasharex_export_{DateTime.Now:yyyyMMdd_HHmmss}.zip"
         };
 
-        if (dialog.ShowDialog() == true)
+        if (zipDialog.ShowDialog() == true)
         {
-            _export.SaveToFile(content, dialog.FileName);
-            StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(dialog.FileName)}";
+            _export.SaveMultipleToZip(selected, zipDialog.FileName);
+            StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}";
+            _toast.Show("Export", $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}.");
         }
     }
 
     [RelayCommand]
-    private void CopyToClipboard()
+    private async Task CopyToClipboard()
     {
-        var selected = Games.Where(g => g.IsSelected).ToList();
+        var selected = Games.Where(t => t.IsSelected).Select(t => t.Game).ToList();
         if (selected.Count == 0)
         {
             StatusMessage = "No games selected";
+            _toast.Show("Copy", "No games selected.", error: true);
             return;
         }
+
+        IsLoading = true;
+        StatusMessage = $"Fetching keys for {selected.Count} game(s)...";
+        try
+        {
+            await _steam.EnsureExportDataAsync(selected);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Key fetch failed: {ex.Message}";
+            _toast.Show("Copy", $"Key fetch failed: {ex.Message}", error: true);
+            return;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+
+        foreach (var tile in Games.Where(t => t.IsSelected))
+            tile.RefreshFromGame();
 
         var content = selected.Count == 1
             ? _export.Export(selected[0])
@@ -198,5 +265,6 @@ public partial class GamesViewModel : ObservableObject
 
         Clipboard.SetText(content);
         StatusMessage = $"Copied {selected.Count} game(s) to clipboard";
+        _toast.Show("Copy", $"Copied {selected.Count} game(s) to clipboard.");
     }
 }

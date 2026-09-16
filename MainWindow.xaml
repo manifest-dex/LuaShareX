@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:LuaShareX.ViewModels"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-        Title="LuaShareX" Width="800" Height="600"
+        Title="LuaShareX" Width="880" Height="700"
         WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True"
         TextElement.Foreground="{DynamicResource TextFillColorPrimaryBrush}"
@@ -19,10 +19,79 @@
         </Grid.RowDefinitions>
 
         <!-- Title Bar -->
-        <ui:TitleBar Grid.Row="0" Title="LuaShareX" ShowMaximize="False" />
+        <ui:TitleBar Grid.Row="0" Title="" ShowMaximize="False" />
 
-        <!-- Content -->
-        <ContentControl Grid.Row="1" Content="{Binding CurrentView}" Margin="16,8">
+        <!-- Login Prompt -->
+        <Border Grid.Row="1" Visibility="{Binding ShowLoginPrompt, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource ApplicationBackgroundBrush}"
+                VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="350" Padding="24,20"
+                CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
+            <StackPanel>
+                <TextBlock Text="Steam Login" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
+                <TextBlock Text="Sign in directly with your Steam account" FontSize="12" Foreground="#6b7280" Margin="0,0,0,16" />
+
+                <ui:Button Content="Sign in with Steam app (QR)" Appearance="Primary" HorizontalAlignment="Stretch" Margin="0,0,0,8"
+                          Command="{Binding LoginWithQrCommand}" />
+
+                <TextBlock Text="or use username and password" FontSize="11" Foreground="#6b7280" Margin="0,4,0,8" HorizontalAlignment="Center" />
+
+                <TextBlock Text="Username" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
+                <ui:TextBox Text="{Binding LoginUsername, Mode=TwoWay}" PlaceholderText="Steam username" Margin="0,0,0,12" />
+
+                <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
+                <ui:PasswordBox Password="{Binding LoginPassword, Mode=TwoWay}" PlaceholderText="Steam password" Margin="0,0,0,16" />
+
+                <ui:Button Content="Login" HorizontalAlignment="Stretch" Margin="0,0,0,8"
+                          Command="{Binding LoginWithSteamKitCommand}" />
+                <ui:Button Content="Use Local Mode Instead" HorizontalAlignment="Stretch"
+                          Command="{Binding UseLocalModeCommand}" />
+
+                <TextBlock Text="{Binding LoginStatus}" FontSize="11" Foreground="#ef4444" TextWrapping="Wrap"
+                           Margin="0,12,0,0" HorizontalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- QR Login -->
+        <Border Grid.Row="1" Visibility="{Binding ShowQrLogin, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource ApplicationBackgroundBrush}"
+                VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="320" Padding="24,20"
+                CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
+            <StackPanel>
+                <TextBlock Text="Sign in with Steam" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" HorizontalAlignment="Center" />
+                <TextBlock Text="Scan this code with the Steam Mobile app" FontSize="12" Foreground="#6b7280" Margin="0,0,0,16" HorizontalAlignment="Center" TextWrapping="Wrap" />
+
+                <Image Source="{Binding QrImage}" Width="220" Height="220" HorizontalAlignment="Center" Margin="0,0,0,12" />
+
+                <TextBlock Text="{Binding QrUrl}" FontSize="10" Foreground="#6b7280" TextWrapping="Wrap"
+                           Margin="0,0,0,12" HorizontalAlignment="Center" MaxWidth="280" />
+
+                <ui:Button Content="Cancel" HorizontalAlignment="Stretch"
+                          Command="{Binding CancelQrLoginCommand}" />
+
+                <TextBlock Text="{Binding StatusMessage}" FontSize="11" Foreground="#6b7280" TextWrapping="Wrap"
+                           Margin="0,12,0,0" HorizontalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Steam Guard Prompt -->
+        <Border Grid.Row="1" Visibility="{Binding ShowGuardPrompt, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource ApplicationBackgroundBrush}"
+                VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="320" Padding="24,20"
+                CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
+            <StackPanel>
+                <TextBlock Text="Steam Guard" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
+                <TextBlock Text="{Binding GuardPrompt}" FontSize="12" Foreground="#6b7280" Margin="0,0,0,16" TextWrapping="Wrap" />
+
+                <ui:TextBox Text="{Binding GuardCode, Mode=TwoWay}" PlaceholderText="XXXXX" Margin="0,0,0,12" />
+
+                <ui:Button Content="Submit" Appearance="Primary" HorizontalAlignment="Stretch"
+                           Command="{Binding SubmitGuardCodeCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Games Content -->
+        <ContentControl Grid.Row="1" Content="{Binding GamesVm}" Margin="16,8"
+                        Visibility="{Binding ContentVisible, Converter={StaticResource BoolToVis}}">
             <ContentControl.Resources>
                 <DataTemplate DataType="{x:Type vm:GamesViewModel}">
                     <Grid>
@@ -30,40 +99,42 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <TextBlock Text="LuaShareX" FontSize="22" FontWeight="Bold" Margin="0,0,0,2" />
-                        <TextBlock Text="Export installed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,0,0,12" />
+                        <StackPanel Grid.Row="0" Margin="0,0,0,2">
+                            <TextBlock Text="LuaShareX" FontSize="22" FontWeight="Bold" />
+                            <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,2,0,10" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
+                                <!-- NOTE: this template's DataContext is GamesViewModel; mode controls live on
+                                     MainViewModel (the window's DataContext), hence the RelativeSource bindings. -->
+                                <TextBlock Text="{Binding DataContext.LocalCacheSummary, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" FontSize="11" Foreground="#6b7280" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <ui:Button Content="Switch to SteamKit" Command="{Binding DataContext.SwitchToSteamKitCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
+                                           Margin="8,0,0,0" />
+                                <ui:Button Content="Logout" Command="{Binding DataContext.LogoutCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
+                                           Visibility="{Binding DataContext.IsLoggedIn, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}, Converter={StaticResource BoolToVis}}" />
+                                <ui:Button Content="{Binding DataContext.UpdateButtonText, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Command="{Binding DataContext.CheckOrInstallUpdateCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
+                                           Margin="8,0,0,0" ToolTip="Check for updates on GitHub Releases" />
+                            </StackPanel>
+                        </StackPanel>
 
-                        <!-- Manual Add -->
+                        <!-- Search + Actions -->
                         <Grid Grid.Row="1" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <ui:TextBox Text="{Binding ManualAppId, Mode=TwoWay}" PlaceholderText="Add by App ID or game name"
-                                      KeyDown="ManualAppId_KeyDown" Margin="0,0,8,0" />
-                            <ui:Button Grid.Column="1" Content="Add" Command="{Binding AddManualGameCommand}" Padding="12,6" />
-                        </Grid>
-
-                        <!-- Filter + Actions -->
-                        <Grid Grid.Row="2" Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ui:TextBox Text="{Binding SearchText, Mode=TwoWay}" PlaceholderText="Filter games..." Margin="0,0,8,0" />
+                            <ui:TextBox Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Search games..." Margin="0,0,8,0" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <ui:Button Content="Refresh" Command="{Binding RefreshGamesCommand}" Margin="0,0,4,0" Padding="12,6" />
-                                <ui:Button Content="Select All" Command="{Binding ToggleSelectAllCommand}" Margin="0,0,4,0" Padding="12,6" />
-                                <ui:Button Content="Export .lua" Command="{Binding ExportSelectedCommand}" Padding="12,6" Appearance="Primary" />
+                                <ui:Button Content="{Binding SelectAllText}" Command="{Binding ToggleSelectAllCommand}" Margin="0,0,4,0" Padding="12,6" />
+                                <ui:Button Content="{Binding ExportText}" Command="{Binding ExportSelectedCommand}" Padding="12,6" Appearance="Primary" />
                             </StackPanel>
                         </Grid>
 
                         <!-- Selected count -->
-                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                        <Grid Grid.Row="2" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -76,27 +147,121 @@
                         </Grid>
 
                         <!-- Loading -->
-                        <StackPanel Grid.Row="4" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}" VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <ui:ProgressRing IsIndeterminate="True" Width="32" Height="32" Margin="0,0,0,8" />
-                            <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#6b7280" HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <Border Grid.Row="3" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}"
+                                Background="#80000000" CornerRadius="8" Panel.ZIndex="1"
+                                VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <ui:ProgressRing IsIndeterminate="True" Width="32" Height="32" Margin="0,0,0,8" />
+                                <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#9ca3af" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
 
-                        <!-- Games List -->
-                        <ListView Grid.Row="4" ItemsSource="{Binding Games}" VirtualizingPanel.IsVirtualizing="True"
-                                  VirtualizingPanel.VirtualizationMode="Recycling"
-                                  BorderThickness="0" Background="Transparent"
-                                  SelectionChanged="GamesList_SelectionChanged">
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,2">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding AppId}" Foreground="#6b7280" FontSize="12" Margin="0,0,8,0" Width="70" />
-                                            <TextBlock Text="{Binding Name}" FontSize="13" />
-                                        </StackPanel>
-                                    </CheckBox>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <!-- Games Grid (Manage-style tiles: plain Borders, not buttons,
+                             so Tab skips the grid instead of stopping on every card) -->
+                        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="TileGrid" ItemsSource="{Binding Games}" KeyboardNavigation.TabNavigation="Once">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="4" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="TileRoot" Height="196" Margin="0,0,12,12"
+                                                HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                                                CornerRadius="10" Cursor="Hand" Focusable="False"
+                                                UseLayoutRounding="True" SnapsToDevicePixels="True"
+                                                MouseLeftButtonUp="Tile_Click"
+                                                ToolTip="{Binding Name}">
+                                            <Border.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Command="{Binding PlacementTarget.Tag.CopyAppIdCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                              CommandParameter="{Binding}" Header="Copy App ID" />
+                                                    <MenuItem Command="{Binding PlacementTarget.Tag.OpenStorePageCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                              CommandParameter="{Binding}" Header="Open Store Page" />
+                                                </ContextMenu>
+                                            </Border.ContextMenu>
+                                            <Border.Tag>
+                                                <Binding ElementName="TileGrid" Path="DataContext" />
+                                            </Border.Tag>
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#0DFFFFFF" />
+                                                    <Setter Property="BorderBrush" Value="#14FFFFFF" />
+                                                    <Setter Property="BorderThickness" Value="1" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#18FFFFFF" />
+                                                            <Setter Property="BorderBrush" Value="#33FFFFFF" />
+                                                        </Trigger>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Background" Value="#1416a34a" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <Grid>
+                                            <StackPanel>
+                                                <Border Height="88" Background="#11FFFFFF" CornerRadius="9,9,0,0" ClipToBounds="True">
+                                                    <Grid>
+                                                        <TextBlock Text="{Binding Initial}" FontSize="38" FontWeight="Bold" Foreground="#3a3f4a"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                   Visibility="{Binding Cover, Converter={StaticResource NullToVis}}" />
+                                                        <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                                        <Border x:Name="Check" Width="28" Height="28" Margin="8,8,0,0"
+                                                                HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                CornerRadius="14">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Opacity" Value="0" />
+                                                                    <Setter Property="Background" Value="#cc14161c" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsMouseOver, ElementName=TileRoot}" Value="True">
+                                                                            <Setter Property="Opacity" Value="1" />
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                            <Setter Property="Opacity" Value="1" />
+                                                                            <Setter Property="Background" Value="#cc16a34a" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <ui:SymbolIcon Symbol="Checkmark16" Foreground="White" FontSize="14"
+                                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
+                                                <StackPanel Margin="12,10,12,12">
+                                                    <TextBlock FontSize="13.5" FontWeight="SemiBold"
+                                                               Text="{Binding Name}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" MaxHeight="40" />
+                                                    <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="#6b7280"
+                                                               Text="{Binding AppId, StringFormat='App ID: {0}'}" />
+                                                    <TextBlock Margin="0,2,0,0" FontSize="11" Foreground="#4b5563"
+                                                               Text="{Binding DepotInfo}" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <!-- Selection outline drawn OVER the content (Margin -1 puts it exactly
+                                                 on the card perimeter) so cover art can never bleed over it. -->
+                                            <Border CornerRadius="10" Background="Transparent" BorderThickness="1"
+                                                    Margin="-1" IsHitTestVisible="False" Focusable="False"
+                                                    UseLayoutRounding="True" SnapsToDevicePixels="True">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="BorderBrush" Value="Transparent" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                <Setter Property="BorderBrush" Value="#22c55e" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </Grid>
                 </DataTemplate>
             </ContentControl.Resources>
@@ -106,5 +271,14 @@
         <Border Grid.Row="2" Background="#08ffffff" BorderBrush="#12ffffff" BorderThickness="0,1,0,0" Padding="16,8">
             <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#6b7280" VerticalAlignment="Center" />
         </Border>
+
+        <!-- Bottom-right toasts (attached to ToastService in App.OnStartup) -->
+        <ui:SnackbarPresenter
+            x:Name="RootSnackbar"
+            Grid.RowSpan="3"
+            Margin="0,0,24,18"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Bottom"
+            Panel.ZIndex="100" />
     </Grid>
 </ui:FluentWindow>

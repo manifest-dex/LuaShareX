@@ -9,3 +9,7 @@ obj/
 *.dll
 *.exe
 *.pdb
+
+# Local installer build outputs
+publish/
+dist/

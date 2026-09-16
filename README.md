@@ -4,9 +4,13 @@ Export licensed Steam games as `.lua` files — app token, depots and decryption
 
 ## Download
 
-Grab the latest `LuaShareX-v*-win-x64.zip` from
-[GitHub Releases](https://github.com/manifest-dex/LuaShareX/releases),
-unzip and run. Requires Windows 10/11 x64, the .NET 8 Desktop Runtime, and Steam.
+Grab the latest release from
+[GitHub Releases](https://github.com/manifest-dex/LuaShareX/releases):
+
+- `LuaShareX-Setup-v*-win-x64.exe` — installer (recommended, per-user, no admin)
+- `LuaShareX-v*-win-x64.zip` — portable, unzip and run
+
+Requires Windows 10/11 x64, the .NET 8 Desktop Runtime, and Steam.
 
 The app checks for updates automatically on startup (and via the header
 button) and installs them from GitHub Releases.

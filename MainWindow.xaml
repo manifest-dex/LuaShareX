@@ -6,6 +6,7 @@
         xmlns:vm="clr-namespace:LuaShareX.ViewModels"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="LuaShareX" Width="880" Height="700"
+        Icon="Resources/app.ico"
         WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True"
         TextElement.Foreground="{DynamicResource TextFillColorPrimaryBrush}"

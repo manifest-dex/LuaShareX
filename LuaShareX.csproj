@@ -8,11 +8,16 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>LuaShareX</AssemblyName>
     <RootNamespace>LuaShareX</RootNamespace>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <Version>1.0.0</Version>
     <Authors>manifest-dex</Authors>
     <Description>Export Steam game info as Lua files</Description>
     <RepositoryUrl>https://github.com/manifest-dex/LuaShareX</RepositoryUrl>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\app.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

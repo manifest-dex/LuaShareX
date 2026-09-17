@@ -90,7 +90,7 @@ public partial class GamesViewModel : ObservableObject
         }
 
         StatusMessage = "Refreshing...";
-        var games = _steam.OwnedAppCount > 0
+        var games = _steam.IsAccountSession
             ? _steam.GetLicensedGames()
             : _steam.GetInstalledGames();
         LoadGamesFromList(games);

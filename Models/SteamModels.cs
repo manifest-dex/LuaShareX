@@ -39,6 +39,7 @@ public class SteamLocalUser
     public string PersonaName { get; set; } = "";
     public bool RememberPassword { get; set; }
     public bool AutoLogin { get; set; }
+    public bool MostRecent { get; set; }
     public long Timestamp { get; set; }
     public string DisplayName => string.IsNullOrEmpty(PersonaName)
         ? AccountName

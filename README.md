@@ -19,8 +19,27 @@ button) and installs them from GitHub Releases.
 
 - **SteamKit2** — sign in with QR code or username + password (Steam Guard
   supported). Lists your full owned library with ownership tokens.
+- **Remembered accounts** — choose an account under **Accounts on this computer**
+  and click **Continue with selected account**. Uses Steam's remembered Windows
+  login, or a login previously saved by LuaShareX. Use **Refresh** after
+  adding an account in Steam. If its login is missing, expired or revoked, use
+  QR/password instead.
 - **Local (account-free)** — reads `config.vdf`, `stplug-in/*.lua` and every
   `appmanifest_*.acf` across all library folders. No login.
+
+Multiple accounts are supported, with one active account at a time. **Switch
+account** keeps remembered logins and clears the previous account's library and
+pending login before opening the account picker. **Logout** forgets only the
+current account's LuaShareX login; it does not sign out of Steam or remove Steam's
+remembered login. Accounts added with QR/password also appear in the picker.
+
+Steam's local login must be readable by the same Windows user who saved it.
+LuaShareX reads `loginusers.vdf` and `%LOCALAPPDATA%\Steam\local.vdf` without
+modifying them. Local token parsing is not an official SteamKit2 API and may need
+updates when Steam changes its format. Saved LuaShareX refresh tokens are encrypted
+with Windows DPAPI per account in `%APPDATA%\LuaShareX\accounts.json`. The old
+`token.txt` is migrated when its account can be identified, then removed after
+successful encrypted storage. No password is saved.
 
 ## Export format
 
@@ -33,6 +52,15 @@ only for the games you select.
 ```powershell
 dotnet build LuaShareX.csproj -c Release
 ```
+
+Run the Windows regression checks (synthetic accounts, no Steam login):
+
+```powershell
+dotnet run --project Tests/LuaShareX.Tests.csproj -c Release
+```
+
+Add `-- --render` to render the real login XAML with synthetic accounts to
+`Tests/bin/Release/net8.0-windows/login-preview.png`.
 
 ## Release
 

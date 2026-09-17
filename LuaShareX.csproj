@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <Resource Include="Resources\app.ico" />
+    <Compile Remove="Tests\**\*.cs" />
+    <InternalsVisibleTo Include="LuaShareX.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +26,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="SteamKit2" Version="3.0.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 

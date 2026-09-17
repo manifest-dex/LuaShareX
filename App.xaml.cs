@@ -39,4 +39,10 @@ public partial class App : Application
             Shutdown();
         }
     }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _services.GetRequiredService<SteamService>().Shutdown();
+        base.OnExit(e);
+    }
 }

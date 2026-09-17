@@ -27,9 +27,26 @@
                 Background="{DynamicResource ApplicationBackgroundBrush}"
                 VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="350" Padding="24,20"
                 CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
                 <TextBlock Text="Steam Login" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
-                <TextBlock Text="Sign in directly with your Steam account" FontSize="12" Foreground="#6b7280" Margin="0,0,0,16" />
+                <TextBlock Text="Choose an account or sign in to another one" FontSize="12" Foreground="#6b7280" Margin="0,0,0,12" />
+
+                <TextBlock Text="Accounts on this computer" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox ItemsSource="{Binding LocalUsers}" SelectedItem="{Binding SelectedLocalUser, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayName" MinWidth="240" MaxWidth="300" HorizontalAlignment="Stretch" />
+                    <ui:Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshAccountsCommand}" Margin="6,0,0,0"
+                               ToolTip="Refresh accounts on this computer" />
+                </Grid>
+                <ui:Button Content="Continue with selected account" Appearance="Primary" HorizontalAlignment="Stretch"
+                           Command="{Binding LoginWithLocalAccountCommand}" Margin="0,0,0,4" />
+                <TextBlock Text="Uses a remembered Steam or LuaShareX login. If unavailable, use QR or password."
+                           FontSize="11" Foreground="#6b7280" TextWrapping="Wrap" MaxWidth="340" Margin="0,0,0,12" />
 
                 <ui:Button Content="Sign in with Steam app (QR)" Appearance="Primary" HorizontalAlignment="Stretch" Margin="0,0,0,8"
                           Command="{Binding LoginWithQrCommand}" />
@@ -37,7 +54,7 @@
                 <TextBlock Text="or use username and password" FontSize="11" Foreground="#6b7280" Margin="0,4,0,8" HorizontalAlignment="Center" />
 
                 <TextBlock Text="Username" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
-                <ui:TextBox Text="{Binding LoginUsername, Mode=TwoWay}" PlaceholderText="Steam username" Margin="0,0,0,12" />
+                <ui:TextBox Text="{Binding LoginUsername, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Steam username" Margin="0,0,0,12" />
 
                 <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
                 <ui:PasswordBox Password="{Binding LoginPassword, Mode=TwoWay}" PlaceholderText="Steam password" Margin="0,0,0,16" />
@@ -48,8 +65,9 @@
                           Command="{Binding UseLocalModeCommand}" />
 
                 <TextBlock Text="{Binding LoginStatus}" FontSize="11" Foreground="#ef4444" TextWrapping="Wrap"
-                           Margin="0,12,0,0" HorizontalAlignment="Center" />
+                           Margin="0,12,0,0" MaxWidth="340" HorizontalAlignment="Center" />
             </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <!-- QR Login -->
@@ -87,6 +105,8 @@
 
                 <ui:Button Content="Submit" Appearance="Primary" HorizontalAlignment="Stretch"
                            Command="{Binding SubmitGuardCodeCommand}" />
+                <ui:Button Content="Cancel" HorizontalAlignment="Stretch" Margin="0,8,0,0"
+                           Command="{Binding SwitchAccountCommand}" />
             </StackPanel>
         </Border>
 
@@ -106,6 +126,12 @@
                         <StackPanel Grid.Row="0" Margin="0,0,0,2">
                             <TextBlock Text="LuaShareX" FontSize="22" FontWeight="Bold" />
                             <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,2,0,10" />
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="{Binding DataContext.CurrentAccountLabel, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}"
+                                           VerticalAlignment="Center" FontSize="12" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                                <ui:Button Content="Switch account" Padding="8,3" Margin="8,0,0,0"
+                                           Command="{Binding DataContext.SwitchAccountCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" />
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
                                 <!-- NOTE: this template's DataContext is GamesViewModel; mode controls live on
                                      MainViewModel (the window's DataContext), hence the RelativeSource bindings. -->

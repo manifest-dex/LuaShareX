@@ -37,6 +37,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private SteamLocalUser? _selectedLocalUser;
     [ObservableProperty] private string _localCacheSummary = "";
     [ObservableProperty] private bool _isLoggedIn;
+    [ObservableProperty] private string _currentAccountLabel = "Not signed in";
     [ObservableProperty] private string _updateButtonText = "Check for updates";
     [ObservableProperty] private bool _updateBusy;
 
@@ -75,13 +76,26 @@ public partial class MainViewModel : ObservableObject
             ShowQrLogin = false;
             ShowGuardPrompt = false;
             IsLoggedIn = true;
+            CurrentAccountLabel = $"Account: {_steam.CurrentAccountName}";
+            LoginPassword = "";
+            RefreshAccounts();
             StatusMessage = "Connected to Steam. Loading your library...";
             toast.Show("Steam", "Signed in — loading your library...");
         };
         _steam.OnSteamKitDisconnected += () =>
         {
             IsLoggedIn = false;
+            CurrentAccountLabel = "Not signed in";
+            GamesVm.LoadGamesFromList([]);
             StatusMessage = "Disconnected from Steam";
+            if (UseSteamKit)
+            {
+                ShowQrLogin = false;
+                ShowGuardPrompt = false;
+                ShowLoginPrompt = true;
+                if (string.IsNullOrEmpty(LoginStatus) || LoginStatus == "Connecting...")
+                    LoginStatus = "Steam connection closed. Select an account or try signing in again.";
+            }
             toast.Show("Steam", "Disconnected from Steam");
         };
         _steam.OnError += (err) =>
@@ -96,6 +110,10 @@ public partial class MainViewModel : ObservableObject
         _steam.OnLoginNeeded += (msg) =>
         {
             LoginStatus = msg;
+            ShowQrLogin = false;
+            ShowGuardPrompt = false;
+            IsLoggedIn = false;
+            CurrentAccountLabel = "Not signed in";
             ShowLoginPrompt = true;
         };
         _steam.OnQRCodeReady += (url) =>
@@ -154,8 +172,7 @@ public partial class MainViewModel : ObservableObject
 
         _steam.DetectSteam();
 
-        LocalUsers = _steam.LocalUsers;
-        SelectedLocalUser = _steam.ActiveLocalUser;
+        RefreshAccounts();
         UpdateLocalCacheSummary();
 
         if (_steam.SteamInstallPath == null)
@@ -200,15 +217,70 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        LoginStatus = "Connecting...";
-        ShowLoginPrompt = false;
+        PrepareSignIn();
         await _steam.StartSteamKitAuth(LoginUsername, LoginPassword);
+        LoginPassword = "";
+    }
+
+    private void PrepareSignIn()
+    {
+        IsLoggedIn = false;
+        CurrentAccountLabel = "Connecting...";
+        UseSteamKit = true;
+        ShowLoginPrompt = false;
+        ShowQrLogin = false;
+        ShowGuardPrompt = false;
+        LoginStatus = "Connecting...";
+        GamesVm.LoadGamesFromList([]);
+    }
+
+    [RelayCommand]
+    private async Task LoginWithLocalAccount()
+    {
+        if (SelectedLocalUser == null)
+        {
+            LoginStatus = "Select an account first.";
+            return;
+        }
+        var account = SelectedLocalUser;
+        PrepareSignIn();
+        LoginPassword = "";
+        StatusMessage = $"Signing in as {account.DisplayName}...";
+        await _steam.StartSteamKitLocalLogin(account);
+    }
+
+    [RelayCommand]
+    private void RefreshAccounts()
+    {
+        var name = _steam.IsSteamKitConnected ? _steam.CurrentAccountName : SelectedLocalUser?.AccountName;
+        _steam.RefreshAccounts();
+        LocalUsers = _steam.LocalUsers;
+        name ??= _steam.ActiveLocalUser?.AccountName;
+        SelectedLocalUser = LocalUsers.FirstOrDefault(a => string.Equals(a.AccountName, name, StringComparison.OrdinalIgnoreCase))
+            ?? LocalUsers.FirstOrDefault();
+    }
+
+    [RelayCommand]
+    private void SwitchAccount()
+    {
+        _steam.Disconnect();
+        IsLoggedIn = false;
+        CurrentAccountLabel = "Not signed in";
+        ShowQrLogin = false;
+        ShowGuardPrompt = false;
+        LoginPassword = "";
+        GamesVm.LoadGamesFromList([]);
+        RefreshAccounts();
+        LoginStatus = "Select a remembered account, or add another account with QR/password.";
+        ShowLoginPrompt = true;
+        StatusMessage = "Choose an account.";
     }
 
     [RelayCommand]
     private async Task LoginWithQr()
     {
-        ShowLoginPrompt = false;
+        PrepareSignIn();
+        LoginPassword = "";
         ShowQrLogin = true;
         QrImage = null;
         StatusMessage = "Connecting to Steam...";
@@ -236,6 +308,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task SwitchToSteamKit()
     {
+        PrepareSignIn();
         UseSteamKit = true;
         ShowLoginPrompt = false;
         ShowQrLogin = false;
@@ -253,10 +326,13 @@ public partial class MainViewModel : ObservableObject
     {
         _steam.Logout();
         IsLoggedIn = false;
+        CurrentAccountLabel = "Not signed in";
+        LoginPassword = "";
         ShowQrLogin = false;
         ShowGuardPrompt = false;
         GamesVm.LoadGamesFromList([]);
-        LoginStatus = "Signed out. Sign in again to load your library.";
+        RefreshAccounts();
+        LoginStatus = "Signed out of LuaShareX. Other accounts are still remembered. Steam's own saved login is unchanged.";
         ShowLoginPrompt = true;
         StatusMessage = "Signed out.";
         _toast.Show("Steam", "Signed out.");
@@ -270,6 +346,8 @@ public partial class MainViewModel : ObservableObject
         ShowGuardPrompt = false;
         UseSteamKit = false;
         _steam.Disconnect();
+        IsLoggedIn = false;
+        CurrentAccountLabel = "Local mode";
         SelectedLocalUser ??= _steam.ActiveLocalUser;
         UpdateLocalCacheSummary();
         LoadInstalledGames();

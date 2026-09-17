@@ -35,31 +35,26 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty] private List<SteamLocalUser> _localUsers = [];
     [ObservableProperty] private SteamLocalUser? _selectedLocalUser;
-    [ObservableProperty] private string _localCacheSummary = "";
     [ObservableProperty] private bool _isLoggedIn;
     [ObservableProperty] private string _currentAccountLabel = "Not signed in";
     [ObservableProperty] private string _updateButtonText = "Check for updates";
     [ObservableProperty] private bool _updateBusy;
+    /// <summary>Library UI stays hidden until sign-in fully succeeds (or local games load).</summary>
+    [ObservableProperty] private bool _isReady;
 
     public GamesViewModel GamesVm { get; }
 
-    public bool ContentVisible => !ShowLoginPrompt && !ShowQrLogin && !ShowGuardPrompt;
+    public bool ContentVisible => IsReady && !ShowLoginPrompt && !ShowQrLogin && !ShowGuardPrompt;
 
     partial void OnShowLoginPromptChanged(bool value) => OnPropertyChanged(nameof(ContentVisible));
     partial void OnShowQrLoginChanged(bool value) => OnPropertyChanged(nameof(ContentVisible));
     partial void OnShowGuardPromptChanged(bool value) => OnPropertyChanged(nameof(ContentVisible));
+    partial void OnIsReadyChanged(bool value) => OnPropertyChanged(nameof(ContentVisible));
 
     partial void OnSelectedLocalUserChanged(SteamLocalUser? value)
     {
         if (value != null && !string.IsNullOrEmpty(value.AccountName))
             LoginUsername = value.AccountName;
-        UpdateLocalCacheSummary();
-    }
-
-    private void UpdateLocalCacheSummary()
-    {
-        // Local mode is account-free (installed apps only, all accounts).
-        LocalCacheSummary = $"{_steam.DepotKeyCount} depot keys";
     }
 
     public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates)
@@ -76,6 +71,7 @@ public partial class MainViewModel : ObservableObject
             ShowQrLogin = false;
             ShowGuardPrompt = false;
             IsLoggedIn = true;
+            IsReady = true;
             CurrentAccountLabel = $"Account: {_steam.CurrentAccountName}";
             LoginPassword = "";
             RefreshAccounts();
@@ -174,10 +170,13 @@ public partial class MainViewModel : ObservableObject
 
         RefreshAccounts();
         UpdateLocalCacheSummary();
+        LocalUsers = _steam.LocalUsers;
+        SelectedLocalUser = _steam.ActiveLocalUser;
 
         if (_steam.SteamInstallPath == null)
         {
             StatusMessage = "Steam not found.";
+            IsReady = true;
             return;
         }
 
@@ -200,6 +199,7 @@ public partial class MainViewModel : ObservableObject
         var games = _steam.GetInstalledGames();
         GamesVm.LoadGamesFromList(games);
         StatusMessage = $"Loaded {games.Count} games";
+        IsReady = true;
     }
 
     private void LoadAllGames()
@@ -310,6 +310,7 @@ public partial class MainViewModel : ObservableObject
     {
         PrepareSignIn();
         UseSteamKit = true;
+        IsReady = false;
         ShowLoginPrompt = false;
         ShowQrLogin = false;
         ShowGuardPrompt = false;
@@ -326,6 +327,7 @@ public partial class MainViewModel : ObservableObject
     {
         _steam.Logout();
         IsLoggedIn = false;
+        IsReady = false;
         CurrentAccountLabel = "Not signed in";
         LoginPassword = "";
         ShowQrLogin = false;
@@ -349,7 +351,6 @@ public partial class MainViewModel : ObservableObject
         IsLoggedIn = false;
         CurrentAccountLabel = "Local mode";
         SelectedLocalUser ??= _steam.ActiveLocalUser;
-        UpdateLocalCacheSummary();
         LoadInstalledGames();
         StatusMessage = $"Local mode — {GamesVm.Games.Count} installed games";
     }

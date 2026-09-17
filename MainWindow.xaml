@@ -135,10 +135,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
                                 <!-- NOTE: this template's DataContext is GamesViewModel; mode controls live on
                                      MainViewModel (the window's DataContext), hence the RelativeSource bindings. -->
-                                <TextBlock Text="{Binding DataContext.LocalCacheSummary, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" FontSize="11" Foreground="#6b7280" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis" />
-                                <ui:Button Content="Switch to SteamKit" Command="{Binding DataContext.SwitchToSteamKitCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
-                                           Margin="8,0,0,0" />
+                                <ui:Button Content="Switch to SteamKit" Command="{Binding DataContext.SwitchToSteamKitCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11" />
                                 <ui:Button Content="Logout" Command="{Binding DataContext.LogoutCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
                                            Visibility="{Binding DataContext.IsLoggedIn, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}, Converter={StaticResource BoolToVis}}" />
                                 <ui:Button Content="{Binding DataContext.UpdateButtonText, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Command="{Binding DataContext.CheckOrInstallUpdateCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"

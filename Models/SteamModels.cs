@@ -22,12 +22,18 @@ public class SteamDepot
     /// <summary>True when Steam's own data marks this as shared redistributable content
     /// (sharedinstall flag or shared from a Tool-type app). Decided from PICS, never names.</summary>
     public bool IsRedistributable { get; set; }
+    /// <summary>Current manifest gid for the public branch (setManifestid line). Empty when unknown.</summary>
+    public string ManifestId { get; set; } = "";
+    /// <summary>Manifest size in bytes (setManifestid line). 0 when unknown.</summary>
+    public ulong ManifestSize { get; set; }
 }
 
 public class SteamDlc
 {
     public uint AppId { get; set; }
     public string Name { get; set; } = "";
+    /// <summary>Ownership ticket hex when Steam granted one, else empty.</summary>
+    public string Token { get; set; } = "";
     public List<SteamDepot> Depots { get; set; } = [];
 }
 

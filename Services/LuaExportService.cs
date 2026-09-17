@@ -10,50 +10,56 @@ public class LuaExportService
     private const string BrandName = "LuaShareX";
     private const string BrandUrl = "https://luasharex.vercel.app";
 
+    private static string Comment(string s) =>
+        s.Replace("\r", "").Replace("\n", "");
+
+    private static void AddDepotLines(StringBuilder sb, IEnumerable<SteamDepot> depots)
+    {
+        foreach (var depot in depots)
+        {
+            var name = Comment(string.IsNullOrEmpty(depot.Name) ? $"Depot {depot.DepotId}" : depot.Name);
+            if (!string.IsNullOrEmpty(depot.DepotKey))
+                sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") --{name}");
+            else
+                sb.AppendLine($"addappid({depot.DepotId}) --{name}");
+            if (!string.IsNullOrEmpty(depot.ManifestId))
+                sb.AppendLine($"setManifestid({depot.DepotId}, \"{depot.ManifestId}\", {depot.ManifestSize})");
+        }
+    }
+
     public string Export(SteamGame game)
     {
         var sb = new StringBuilder();
+        var name = Comment(string.IsNullOrEmpty(game.Name) ? $"App {game.AppId}" : game.Name);
 
-        sb.AppendLine($"-- App Name: {game.Name}");
-        sb.AppendLine($"-- Created by {BrandName} ({BrandUrl})");
+        sb.AppendLine($"-- Downloaded using {BrandName} ({BrandUrl})");
+        sb.AppendLine($"-- Original file: {game.AppId}.lua");
+        sb.AppendLine($"--Gamename {name}");
 
-        // Main app with token
+        // Main app line: short stplug-in key preferred (see EnsureExportDataAsync);
+        // the long ownership-ticket blob is only used when no short key exists.
         if (!string.IsNullOrEmpty(game.Token))
-            sb.AppendLine($"addappid({game.AppId}, 1, \"{game.Token}\")");
+            sb.AppendLine($"addappid({game.AppId}, 1, \"{game.Token}\") --Mainappid {name}");
         else
-            sb.AppendLine($"addappid({game.AppId})");
+            sb.AppendLine($"addappid({game.AppId}) --Mainappid {name}");
 
-        // Depots split by Steam's own classification (sharedinstall flag /
-        // shared from a Tool-type app), resolved in SteamService. No names.
-        var gameDepots = game.Depots
-            .Where(d => !d.IsRedistributable)
-            .ToList();
-        var redistDepots = game.Depots
-            .Where(d => d.IsRedistributable)
-            .ToList();
+        // Directly owned depots first…
+        AddDepotLines(sb, game.Depots.Where(d => !d.IsShared && !d.IsRedistributable));
 
-        if (gameDepots.Count > 0)
+        // …then everything Steam marks as shared/redistributable.
+        var shared = game.Depots.Where(d => d.IsShared || d.IsRedistributable).ToList();
+        if (shared.Count > 0)
         {
-            sb.AppendLine("-- Depots Section");
-            foreach (var depot in gameDepots)
-            {
-                if (!string.IsNullOrEmpty(depot.DepotKey))
-                    sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name}");
-                else
-                    sb.AppendLine($"addappid({depot.DepotId}) -- {depot.Name}");
-            }
+            sb.AppendLine("--Share Depots");
+            AddDepotLines(sb, shared);
         }
 
-        if (redistDepots.Count > 0)
+        foreach (var dlc in game.Dlcs.OrderBy(d => d.AppId))
         {
-            sb.AppendLine("-- Redistributable Depots");
-            foreach (var depot in redistDepots)
-            {
-                if (!string.IsNullOrEmpty(depot.DepotKey))
-                    sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") -- {depot.Name}");
-                else
-                    sb.AppendLine($"addappid({depot.DepotId}) -- {depot.Name}");
-            }
+            var dlcName = Comment(string.IsNullOrEmpty(dlc.Name) ? $"AppID {dlc.AppId}" : dlc.Name);
+            sb.AppendLine($"addappid({dlc.AppId}) --Dlcname {dlcName}");
+            if (!string.IsNullOrEmpty(dlc.Token))
+                sb.AppendLine($"addtoken({dlc.AppId}, \"{dlc.Token}\")");
         }
 
         return sb.ToString().TrimEnd() + Environment.NewLine;

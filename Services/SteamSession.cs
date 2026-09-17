@@ -40,6 +40,7 @@ internal partial class SteamSession
     private readonly Dictionary<uint, string> _appNames = new();
     private readonly Dictionary<uint, string> _appTokens = new();
     private readonly Dictionary<uint, List<SteamDepot>> _appDepots = new();
+    private readonly Dictionary<uint, List<uint>> _appDlcs = new();
     private readonly List<uint> _ownedAppIds = [];
     private readonly object _sync = new();
     private static readonly HttpClient _http = new();
@@ -386,7 +387,11 @@ internal partial class SteamSession
             lock (_sync)
             {
                 name = _appNames.TryGetValue(appId, out var n) ? n : $"App {appId}";
-                token = _appTokens.TryGetValue(appId, out var t) ? t : "";
+                // Prefer the short key from local stplug-in lua files over the
+                // long ownership-ticket blob: the ticket is only fetched later
+                // for games that still have no token at export time.
+                token = _appTokens.TryGetValue(appId, out var t) ? t
+                    : _luaAppTokens.TryGetValue(appId, out var lt) ? lt : "";
                 picsById = _appDepots.TryGetValue(appId, out var d)
                     ? d.ToDictionary(x => x.DepotId)
                     : new Dictionary<uint, SteamDepot>();
@@ -421,6 +426,7 @@ internal partial class SteamSession
                 }
                 game.Depots.Add(depot);
             }
+            game.Dlcs = BuildDlcs(appId);
             games.Add(game);
         }
 
@@ -444,16 +450,20 @@ internal partial class SteamSession
                     if (File.Exists(acf))
                     {
                         var content = File.ReadAllText(acf);
+                        var manifests = ParseInstalledDepotManifests(content);
                         foreach (Match m in DepotIdRegex().Matches(content))
                         {
                             if (uint.TryParse(m.Groups[1].Value, out var depotId))
                             {
                                 var key = GetDepotKey(depotId);
+                                manifests.TryGetValue(depotId, out var manifest);
                                 depots.Add(new SteamDepot
                                 {
                                     DepotId = depotId,
                                     Name = ResolveDepotName(depotId, $"Depot {depotId}"),
-                                    DepotKey = key ?? ""
+                                    DepotKey = key ?? "",
+                                    ManifestId = manifest.manifest ?? "",
+                                    ManifestSize = manifest.size,
                                 });
                             }
                         }
@@ -918,7 +928,18 @@ internal partial class SteamSession
 
         var (ok, fail) = await FetchDepotKeysParallelAsync(missing);
 
-        var tokensOk = await FetchAppTicketsForAsync(appIds);
+        // Ownership tickets only for games that still have no token
+        // (short stplug-in keys win over the long ticket blob).
+        // DLC tickets are fetched for every known DLC of these games.
+        await EnsureDlcNamesAsync(appIds);
+        var tokenNeeded = games.Where(g => string.IsNullOrEmpty(g.Token)).Select(g => g.AppId).ToList();
+        List<uint> dlcIds;
+        lock (_sync) dlcIds = appIds
+            .Where(id => _appDlcs.ContainsKey(id))
+            .SelectMany(id => _appDlcs[id])
+            .Distinct()
+            .ToList();
+        var tokensOk = await FetchAppTicketsForAsync(tokenNeeded.Concat(dlcIds).Distinct().ToList());
 
         RefreshGamesFromStore(games);
         Log($"Export prep: {ok} keys ok, {fail} denied, {tokensOk} app tokens");
@@ -953,6 +974,8 @@ internal partial class SteamSession
                         IsShared = x.IsShared,
                         SharedFrom = x.SharedFrom,
                         IsRedistributable = x.IsRedistributable,
+                        ManifestId = x.ManifestId,
+                        ManifestSize = x.ManifestSize,
                     }).ToList()
                     : [];
                 name = _appNames.TryGetValue(game.AppId, out var n) ? n : game.Name;
@@ -973,12 +996,18 @@ internal partial class SteamSession
                     if (string.IsNullOrEmpty(depot.SharedFrom))
                         depot.SharedFrom = pics.SharedFrom;
                     depot.IsRedistributable |= pics.IsRedistributable;
+                    if (string.IsNullOrEmpty(depot.ManifestId) && !string.IsNullOrEmpty(pics.ManifestId))
+                    {
+                        depot.ManifestId = pics.ManifestId;
+                        depot.ManifestSize = pics.ManifestSize;
+                    }
                 }
                 var key = GetDepotKey(depot.DepotId);
                 if (!string.IsNullOrEmpty(key))
                     depot.DepotKey = key;
             }
             game.Depots = fresh;
+            game.Dlcs = BuildDlcs(game.AppId);
         }
     }
 
@@ -1016,6 +1045,75 @@ internal partial class SteamSession
                         {
                             foreach (var appInfo in cb.Apps.Values)
                                 MergeAppInfo(appInfo.ID, appInfo.KeyValues, !_webApiOk);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Builds the DLC list for an app from discovered listofdlc ids,
+    /// PICS names and any fetched ownership tickets.
+    /// </summary>
+    private List<SteamDlc> BuildDlcs(uint appId)
+    {
+        lock (_sync)
+        {
+            if (!_appDlcs.TryGetValue(appId, out var ids)) return [];
+            return ids.Select(id => new SteamDlc
+            {
+                AppId = id,
+                Name = _appNames.TryGetValue(id, out var n) && n != $"App {id}" && !string.IsNullOrEmpty(n)
+                    ? n
+                    : $"AppID {id}",
+                Token = _appTokens.TryGetValue(id, out var t) ? t : "",
+            }).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Resolves display names for the DLCs of the given apps via PICS.
+    /// allowNewIds is always false here: DLC lookups must never pollute
+    /// the owned-apps list.
+    /// </summary>
+    private async Task EnsureDlcNamesAsync(List<uint> appIds)
+    {
+        if (_steamApps == null) return;
+
+        List<uint> dlcIds;
+        lock (_sync) dlcIds = appIds
+            .Where(id => _appDlcs.ContainsKey(id))
+            .SelectMany(id => _appDlcs[id])
+            .Distinct()
+            .ToList();
+        lock (_sync) dlcIds = dlcIds.Where(id => !_appNames.ContainsKey(id)).ToList();
+        if (dlcIds.Count == 0) return;
+
+        UiInvoke(() => OnStatusUpdate?.Invoke($"Resolving {dlcIds.Count} DLC name(s)..."));
+
+        var tokenResult = await _steamApps.PICSGetAccessTokens(dlcIds, Array.Empty<uint>());
+
+        foreach (var batch in dlcIds.Chunk(30))
+        {
+            var requests = batch.Select(id =>
+            {
+                tokenResult.AppTokens.TryGetValue(id, out var token);
+                return new SteamApps.PICSRequest(id, token);
+            }).ToList();
+
+            try
+            {
+                var result = await _steamApps.PICSGetProductInfo(requests, Array.Empty<SteamApps.PICSRequest>());
+                if (result.Results != null)
+                {
+                    foreach (var cb in result.Results)
+                    {
+                        if (cb.Apps != null)
+                        {
+                            foreach (var appInfo in cb.Apps.Values)
+                                MergeAppInfo(appInfo.ID, appInfo.KeyValues, allowNewIds: false);
                         }
                     }
                 }
@@ -1379,6 +1477,8 @@ internal partial class SteamSession
                             string depotName = $"Depot {depotId}";
                             uint parentApp = appId;
                             bool sharedInstall = false;
+                            string manifestId = "";
+                            ulong manifestSize = 0;
                             for (int k = 0; k < depotNode.Children.Count; k++)
                             {
                                 var field = depotNode.Children[k];
@@ -1390,6 +1490,31 @@ internal partial class SteamSession
                                 else if (field.Name == "sharedinstall"
                                     && field.Value == "1")
                                     sharedInstall = true;
+                                else if (field.Name == "manifests")
+                                {
+                                    // manifests -> <branch, usually "public"> -> gid + size
+                                    for (int m = 0; m < field.Children.Count; m++)
+                                    {
+                                        var branch = field.Children[m];
+                                        bool isPublic = string.Equals(branch.Name, "public", StringComparison.OrdinalIgnoreCase);
+                                        string? gid = null;
+                                        ulong size = 0;
+                                        for (int n = 0; n < branch.Children.Count; n++)
+                                        {
+                                            if (branch.Children[n].Name == "gid")
+                                                gid = branch.Children[n].Value;
+                                            else if (branch.Children[n].Name == "size"
+                                                && ulong.TryParse(branch.Children[n].Value, out var s))
+                                                size = s;
+                                        }
+                                        if (!string.IsNullOrEmpty(gid) && (isPublic || string.IsNullOrEmpty(manifestId)))
+                                        {
+                                            manifestId = gid;
+                                            manifestSize = size;
+                                            if (isPublic) break;
+                                        }
+                                    }
+                                }
                             }
                             depots.Add(new SteamDepot
                             {
@@ -1399,7 +1524,26 @@ internal partial class SteamSession
                                 IsShared = parentApp != appId,
                                 SharedFrom = parentApp != appId ? parentApp.ToString() : "",
                                 IsRedistributable = sharedInstall,
+                                ManifestId = manifestId,
+                                ManifestSize = manifestSize,
                             });
+                        }
+                    }
+                }
+                else if (child.Name == "extended")
+                {
+                    for (int j = 0; j < child.Children.Count; j++)
+                    {
+                        if (child.Children[j].Name == "listofdlc"
+                            && !string.IsNullOrEmpty(child.Children[j].Value))
+                        {
+                            var dlcIds = child.Children[j].Value!
+                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                .Where(s => uint.TryParse(s, out _))
+                                .Select(uint.Parse)
+                                .Distinct()
+                                .ToList();
+                            lock (_sync) _appDlcs[appId] = dlcIds;
                         }
                     }
                 }
@@ -1615,6 +1759,7 @@ internal partial class SteamSession
                 game.Token = appToken;
         }
         var sharedParents = ParseSharedDepots(content);
+        var manifests = ParseInstalledDepotManifests(content);
 
         foreach (Match m in DepotIdRegex().Matches(content))
         {
@@ -1622,6 +1767,7 @@ internal partial class SteamSession
             {
                 sharedParents.TryGetValue(depotId, out var parent);
                 parent = parent != 0 ? parent : appId;
+                manifests.TryGetValue(depotId, out var manifest);
                 game.Depots.Add(new SteamDepot
                 {
                     DepotId = depotId,
@@ -1629,10 +1775,35 @@ internal partial class SteamSession
                     ParentAppId = parent,
                     IsShared = parent != appId,
                     SharedFrom = parent != appId ? parent.ToString() : "",
+                    ManifestId = manifest.manifest ?? "",
+                    ManifestSize = manifest.size,
                 });
             }
         }
         return game;
+    }
+
+    /// <summary>
+    /// Reads InstalledDepots manifest gid + size per depot from an appmanifest
+    /// ("depotid" { "manifest" "gid" "size" "bytes" }). Used for setManifestid lines.
+    /// </summary>
+    private static Dictionary<uint, (string manifest, ulong size)> ParseInstalledDepotManifests(string content)
+    {
+        var map = new Dictionary<uint, (string, ulong)>();
+        var section = ExtractVdfSection(content, "InstalledDepots");
+        if (section == null) return map;
+
+        foreach (Match m in Regex.Matches(section, @"""(\d+)""\s*\{([^}]*)\}"))
+        {
+            if (!uint.TryParse(m.Groups[1].Value, out var depotId)) continue;
+            var body = m.Groups[2].Value;
+            var gid = Regex.Match(body, @"""manifest""\s+""(\d+)""");
+            if (!gid.Success) continue;
+            var size = Regex.Match(body, @"""size""\s+""(\d+)""");
+            ulong.TryParse(size.Success ? size.Groups[1].Value : "0", out var bytes);
+            map[depotId] = (gid.Groups[1].Value, bytes);
+        }
+        return map;
     }
 
     /// <summary>

@@ -37,6 +37,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private SteamLocalUser? _selectedLocalUser;
     [ObservableProperty] private bool _isLoggedIn;
     [ObservableProperty] private string _currentAccountLabel = "Not signed in";
+    [ObservableProperty] private string _localCacheSummary = "";
     [ObservableProperty] private string _updateButtonText = "Check for updates";
     [ObservableProperty] private bool _updateBusy;
     /// <summary>Library UI stays hidden until sign-in fully succeeds (or local games load).</summary>
@@ -55,6 +56,12 @@ public partial class MainViewModel : ObservableObject
     {
         if (value != null && !string.IsNullOrEmpty(value.AccountName))
             LoginUsername = value.AccountName;
+    }
+
+    private void UpdateLocalCacheSummary()
+    {
+        // Local cache is account-free (installed apps only, all accounts).
+        LocalCacheSummary = $"{_steam.DepotKeyCount} depot keys";
     }
 
     public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates)

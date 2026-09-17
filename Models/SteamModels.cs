@@ -4,6 +4,9 @@ public class SteamGame
 {
     public uint AppId { get; set; }
     public string Name { get; set; } = "";
+    /// <summary>Optional decryption key for a depot whose ID equals the app ID.</summary>
+    public string BaseDepotKey { get; set; } = "";
+    /// <summary>PICS app access token as an unsigned 64-bit decimal string.</summary>
     public string Token { get; set; } = "";
     public bool IsSelected { get; set; }
     public List<SteamDepot> Depots { get; set; } = [];
@@ -32,7 +35,7 @@ public class SteamDlc
 {
     public uint AppId { get; set; }
     public string Name { get; set; } = "";
-    /// <summary>Ownership ticket hex when Steam granted one, else empty.</summary>
+    /// <summary>PICS app access token as an unsigned 64-bit decimal string.</summary>
     public string Token { get; set; } = "";
     public List<SteamDepot> Depots { get; set; } = [];
 }

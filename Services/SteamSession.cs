@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -195,6 +196,16 @@ internal partial class SteamSession
                     var trimmed = line.TrimStart();
                     if (trimmed.StartsWith("--", StringComparison.Ordinal)) continue;
 
+                    var tokenMatch = LuaTokenRegex().Match(line);
+                    if (tokenMatch.Success &&
+                        uint.TryParse(tokenMatch.Groups[1].Value, out var tokenAppId) &&
+                        ulong.TryParse(tokenMatch.Groups[2].Value, out var appToken) &&
+                        appToken != 0)
+                    {
+                        _luaAppTokens[tokenAppId] = tokenMatch.Groups[2].Value;
+                        continue;
+                    }
+
                     var m = LuaAppIdRegex().Match(line);
                     if (!m.Success) continue;
                     if (!uint.TryParse(m.Groups[1].Value, out var id)) continue;
@@ -202,15 +213,11 @@ internal partial class SteamSession
                     var key = m.Groups[2].Value;
                     var comment = m.Groups[3].Success ? m.Groups[3].Value.Trim() : "";
 
-                    if (id == fileAppId)
-                    {
-                        _luaAppTokens[fileAppId] = key;
-                    }
-                    else
+                    if (key.Length == 64 && key.All(Uri.IsHexDigit))
                     {
                         if (!_depotKeys.ContainsKey(id))
                             _depotKeys[id] = key;
-                        if (!string.IsNullOrEmpty(comment) && !_luaDepotNames.ContainsKey(id))
+                        if (id != fileAppId && !string.IsNullOrEmpty(comment) && !_luaDepotNames.ContainsKey(id))
                             _luaDepotNames[id] = comment;
                     }
                 }
@@ -387,9 +394,6 @@ internal partial class SteamSession
             lock (_sync)
             {
                 name = _appNames.TryGetValue(appId, out var n) ? n : $"App {appId}";
-                // Prefer the short key from local stplug-in lua files over the
-                // long ownership-ticket blob: the ticket is only fetched later
-                // for games that still have no token at export time.
                 token = _appTokens.TryGetValue(appId, out var t) ? t
                     : _luaAppTokens.TryGetValue(appId, out var lt) ? lt : "";
                 picsById = _appDepots.TryGetValue(appId, out var d)
@@ -409,7 +413,13 @@ internal partial class SteamSession
                     : [];
             }
 
-            var game = new SteamGame { AppId = appId, Name = name, Token = token };
+            var game = new SteamGame
+            {
+                AppId = appId,
+                Name = name,
+                Token = token,
+                BaseDepotKey = GetDepotKey(appId) ?? ""
+            };
             foreach (var depot in GetDepotsForApp(appId, depots))
             {
                 // Backfill everything Steam knows about this depot ID.
@@ -474,7 +484,7 @@ internal partial class SteamSession
         if (depots.Count == 0 && picsDepots != null)
             depots.AddRange(picsDepots);
 
-        return depots;
+        return depots.GroupBy(d => d.DepotId).Select(g => g.First()).ToList();
     }
 
     public int OwnedAppCount
@@ -923,23 +933,24 @@ internal partial class SteamSession
         var missing = games
             .SelectMany(g => g.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey))
                 .Select(d => (appId: g.AppId, depotId: d.DepotId)))
+            .Concat(games.Where(g => string.IsNullOrEmpty(g.BaseDepotKey))
+                .Select(g => (appId: g.AppId, depotId: g.AppId)))
             .Distinct()
             .ToList();
 
         var (ok, fail) = await FetchDepotKeysParallelAsync(missing);
 
-        // Ownership tickets only for games that still have no token
-        // (short stplug-in keys win over the long ticket blob).
-        // DLC tickets are fetched for every known DLC of these games.
+        // PICS access tokens are unsigned 64-bit values. Ownership tickets from
+        // GetAppOwnershipTicket are opaque byte blobs and are not addtoken values.
         await EnsureDlcNamesAsync(appIds);
-        var tokenNeeded = games.Where(g => string.IsNullOrEmpty(g.Token)).Select(g => g.AppId).ToList();
+        var tokenNeeded = games.Where(g => !IsValidAppToken(g.Token)).Select(g => g.AppId).ToList();
         List<uint> dlcIds;
         lock (_sync) dlcIds = appIds
             .Where(id => _appDlcs.ContainsKey(id))
             .SelectMany(id => _appDlcs[id])
             .Distinct()
             .ToList();
-        var tokensOk = await FetchAppTicketsForAsync(tokenNeeded.Concat(dlcIds).Distinct().ToList());
+        var tokensOk = await FetchAppTokensForAsync(tokenNeeded.Concat(dlcIds).Distinct().ToList());
 
         RefreshGamesFromStore(games);
         Log($"Export prep: {ok} keys ok, {fail} denied, {tokensOk} app tokens");
@@ -960,7 +971,8 @@ internal partial class SteamSession
             string name;
             lock (_sync)
             {
-                token = _appTokens.TryGetValue(game.AppId, out var t) ? t : game.Token;
+                token = _appTokens.TryGetValue(game.AppId, out var t) && IsValidAppToken(t) ? t
+                    : IsValidAppToken(game.Token) ? game.Token : "";
                 picsById = _appDepots.TryGetValue(game.AppId, out var d)
                     ? d.ToDictionary(x => x.DepotId)
                     : new Dictionary<uint, SteamDepot>();
@@ -982,6 +994,7 @@ internal partial class SteamSession
             }
 
             game.Token = token;
+            game.BaseDepotKey = GetDepotKey(game.AppId) ?? "";
             game.Name = name;
             var fresh = GetDepotsForApp(game.AppId, picsDepots);
             foreach (var depot in fresh)
@@ -1055,7 +1068,7 @@ internal partial class SteamSession
 
     /// <summary>
     /// Builds the DLC list for an app from discovered listofdlc ids,
-    /// PICS names and any fetched ownership tickets.
+    /// PICS names and any fetched app access tokens.
     /// </summary>
     private List<SteamDlc> BuildDlcs(uint appId)
     {
@@ -1123,10 +1136,10 @@ internal partial class SteamSession
     }
 
     /// <summary>
-    /// Fetches app ownership tickets (the token on the main addappid line)
-    /// for the given apps, in parallel. Best effort. Returns tickets granted.
+    /// Fetches unsigned 64-bit PICS app access tokens for addtoken lines.
+    /// Best effort. Returns tokens granted.
     /// </summary>
-    private async Task<int> FetchAppTicketsForAsync(List<uint> appIds)
+    private async Task<int> FetchAppTokensForAsync(List<uint> appIds)
     {
         if (_steamApps == null || appIds.Count == 0) return 0;
 
@@ -1134,39 +1147,31 @@ internal partial class SteamSession
         lock (_sync) ids = appIds.Where(id => !_appTokens.ContainsKey(id)).Distinct().ToList();
         if (ids.Count == 0) return 0;
 
-        int done = 0, ok = 0;
-        using var gate = new SemaphoreSlim(4);
-
-        var tasks = ids.Select(async appId =>
+        try
         {
-            await gate.WaitAsync();
-            try
+            var result = await _steamApps.PICSGetAccessTokens(ids, Array.Empty<uint>());
+            var ok = 0;
+            lock (_sync)
             {
-                lock (_sync)
+                foreach (var appId in ids)
                 {
-                    if (_appTokens.ContainsKey(appId))
-                        return;
-                }
-                var result = await _steamApps.GetAppOwnershipTicket(appId);
-                if (result.Result == EResult.OK && result.Ticket is { Length: > 0 })
-                {
-                    var token = Convert.ToHexString(result.Ticket).ToLowerInvariant();
-                    lock (_sync) _appTokens[appId] = token;
-                    Interlocked.Increment(ref ok);
+                    if (!result.AppTokens.TryGetValue(appId, out var token) || token == 0) continue;
+                    _appTokens[appId] = token.ToString(CultureInfo.InvariantCulture);
+                    ok++;
                 }
             }
-            catch { }
-            finally
-            {
-                gate.Release();
-                Interlocked.Increment(ref done);
-            }
-        });
-
-        await Task.WhenAll(tasks);
-        Log($"App ownership tickets: {ok}/{ids.Count}");
-        return ok;
+            Log($"PICS app access tokens: {ok}/{ids.Count}");
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            Log($"PICS app access tokens failed: {ex.Message}");
+            return 0;
+        }
     }
+
+    private static bool IsValidAppToken(string token) =>
+        ulong.TryParse(token, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value != 0;
 
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
     {
@@ -1752,7 +1757,12 @@ internal partial class SteamSession
         if (!appIdMatch.Success || !nameMatch.Success) return null;
         if (!uint.TryParse(appIdMatch.Groups[1].Value, out var appId)) return null;
 
-        var game = new SteamGame { AppId = appId, Name = nameMatch.Groups[1].Value };
+        var game = new SteamGame
+        {
+            AppId = appId,
+            Name = nameMatch.Groups[1].Value,
+            BaseDepotKey = GetDepotKey(appId) ?? ""
+        };
         lock (_sync)
         {
             if (_luaAppTokens.TryGetValue(appId, out var appToken))
@@ -1842,6 +1852,8 @@ internal partial class SteamSession
     private static partial Regex DepotIdRegex();
     [GeneratedRegex(@"addappid\((\d+),\s*1,\s*""([^""]+)""\)(?:\s*--\s*(.*))?", RegexOptions.Compiled)]
     private static partial Regex LuaAppIdRegex();
+    [GeneratedRegex(@"addtoken\((\d+),\s*""?(\d+)""?\)", RegexOptions.Compiled)]
+    private static partial Regex LuaTokenRegex();
     [GeneratedRegex(@"""(\d+)""\s*\{[^}]*?""DecryptionKey""\s*""([^""]+)""", RegexOptions.Compiled)]
     private static partial Regex DepotKeyEntryRegex();
 }

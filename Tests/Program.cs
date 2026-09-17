@@ -28,6 +28,7 @@ internal static class Program
             Run("Legacy login migrates to encrypted storage", LegacyMigration);
             Run("Unreadable storage is preserved", CorruptStore);
             Run("Retired sessions suppress callbacks, saves and Guard requests", RetiredSession);
+            Run("Lua export keeps app tokens separate from depot keys", LuaExportTokens);
             if (args.Contains("--render")) RenderLogin();
             Console.WriteLine($"PASS: {_passed} checks. Only synthetic account data was used; no Steam connection was opened.");
             return 0;
@@ -46,6 +47,31 @@ internal static class Program
 
     private static void Run(string name, Action test) { test(); _passed++; Console.WriteLine("PASS: " + name); }
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+
+    private static void LuaExportTokens()
+    {
+        var game = new SteamGame
+        {
+            AppId = 280160,
+            Name = "Aragami",
+            BaseDepotKey = "60689065685acbd4becba24f4d7ede49cb7af83215cb48666732aa32d6b09133",
+            Token = ulong.MaxValue.ToString(),
+            Dlcs =
+            [
+                new SteamDlc { AppId = 564400, Name = "Masks", Token = "3200000004000000deadbeef" },
+                new SteamDlc { AppId = 771720, Name = "Nightfall", Token = "42" }
+            ]
+        };
+
+        var lua = new LuaExportService().Export(game);
+        Check(lua.Contains("addappid(280160, 1, \"60689065685acbd4becba24f4d7ede49cb7af83215cb48666732aa32d6b09133\") --Mainappid Aragami"),
+            "A valid base-AppID depot key was not exported.");
+        Check(lua.Contains("addtoken(280160, \"18446744073709551615\")"), "A valid UInt64 app token was not exported.");
+        Check(lua.Contains("addtoken(771720, \"42\")"), "A valid DLC token was not exported.");
+        Check(!lua.Contains("3200000004000000deadbeef"), "An ownership-ticket blob was exported as an app token.");
+        Check(!new LuaExportService().Export(new SteamGame { AppId = 1, Token = "0" }).Contains("addtoken"),
+            "A zero PICS token was exported.");
+    }
     private static string Jwt(string id, long? expiry = null, string audience = "client")
     {
         var payload = JsonSerializer.Serialize(new { sub = id, exp = expiry ?? DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(), aud = new[] { "derive", audience } });

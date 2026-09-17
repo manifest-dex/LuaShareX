@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using System.Globalization;
 using System.Text;
 using LuaShareX.Models;
 
@@ -13,12 +14,18 @@ public class LuaExportService
     private static string Comment(string s) =>
         s.Replace("\r", "").Replace("\n", "");
 
+    private static bool IsAppToken(string token) =>
+        ulong.TryParse(token, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value != 0;
+
+    private static bool IsDepotKey(string key) =>
+        key.Length == 64 && key.All(Uri.IsHexDigit);
+
     private static void AddDepotLines(StringBuilder sb, IEnumerable<SteamDepot> depots)
     {
         foreach (var depot in depots)
         {
             var name = Comment(string.IsNullOrEmpty(depot.Name) ? $"Depot {depot.DepotId}" : depot.Name);
-            if (!string.IsNullOrEmpty(depot.DepotKey))
+            if (IsDepotKey(depot.DepotKey))
                 sb.AppendLine($"addappid({depot.DepotId}, 1, \"{depot.DepotKey}\") --{name}");
             else
                 sb.AppendLine($"addappid({depot.DepotId}) --{name}");
@@ -36,18 +43,22 @@ public class LuaExportService
         sb.AppendLine($"-- Original file: {game.AppId}.lua");
         sb.AppendLine($"--Gamename {name}");
 
-        // Main app line: short stplug-in key preferred (see EnsureExportDataAsync);
-        // the long ownership-ticket blob is only used when no short key exists.
-        if (!string.IsNullOrEmpty(game.Token))
-            sb.AppendLine($"addappid({game.AppId}, 1, \"{game.Token}\") --Mainappid {name}");
+        var baseDepot = game.Depots.FirstOrDefault(d => d.DepotId == game.AppId);
+        var baseDepotKey = IsDepotKey(game.BaseDepotKey) ? game.BaseDepotKey : baseDepot?.DepotKey ?? "";
+        if (IsDepotKey(baseDepotKey))
+            sb.AppendLine($"addappid({game.AppId}, 1, \"{baseDepotKey}\") --Mainappid {name}");
         else
             sb.AppendLine($"addappid({game.AppId}) --Mainappid {name}");
+        if (!string.IsNullOrEmpty(baseDepot?.ManifestId))
+            sb.AppendLine($"setManifestid({game.AppId}, \"{baseDepot.ManifestId}\", {baseDepot.ManifestSize})");
+        if (IsAppToken(game.Token))
+            sb.AppendLine($"addtoken({game.AppId}, \"{game.Token}\")");
 
         // Directly owned depots first…
-        AddDepotLines(sb, game.Depots.Where(d => !d.IsShared && !d.IsRedistributable));
+        AddDepotLines(sb, game.Depots.Where(d => d.DepotId != game.AppId && !d.IsShared && !d.IsRedistributable));
 
         // …then everything Steam marks as shared/redistributable.
-        var shared = game.Depots.Where(d => d.IsShared || d.IsRedistributable).ToList();
+        var shared = game.Depots.Where(d => d.DepotId != game.AppId && (d.IsShared || d.IsRedistributable)).ToList();
         if (shared.Count > 0)
         {
             sb.AppendLine("--Share Depots");
@@ -58,7 +69,7 @@ public class LuaExportService
         {
             var dlcName = Comment(string.IsNullOrEmpty(dlc.Name) ? $"AppID {dlc.AppId}" : dlc.Name);
             sb.AppendLine($"addappid({dlc.AppId}) --Dlcname {dlcName}");
-            if (!string.IsNullOrEmpty(dlc.Token))
+            if (IsAppToken(dlc.Token))
                 sb.AppendLine($"addtoken({dlc.AppId}, \"{dlc.Token}\")");
         }
 

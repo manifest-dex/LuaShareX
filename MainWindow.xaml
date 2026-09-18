@@ -169,7 +169,11 @@
                                 <Run Text="{Binding SelectedCount, Mode=OneWay}" />
                                 <Run Text=" selected" />
                             </TextBlock>
-                            <ui:Button Grid.Column="1" Content="Copy" Command="{Binding CopyToClipboardCommand}" Padding="12,6" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <ui:Button Content="Test All" Command="{Binding TestAllKeysCommand}" Padding="12,6" Margin="0,0,4,0"
+                                           ToolTip="Fetch depot keys for every game in the library and report failures" />
+                                <ui:Button Content="Copy" Command="{Binding CopyToClipboardCommand}" Padding="12,6" />
+                            </StackPanel>
                         </Grid>
 
                         <!-- Loading -->

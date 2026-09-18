@@ -867,13 +867,20 @@ internal partial class SteamSession
             await gate.WaitAsync();
             try
             {
-                var result = await _steamApps.GetDepotDecryptionKey(item.depotId, item.parentApp);
-                if (result.Result is EResult.Timeout or EResult.NoConnection or EResult.ServiceUnavailable)
+                var result = await TryGetKeyAsync(item.depotId, item.parentApp);
+                if (result == null)
+                {
+                    // Never answered at all: same handling as a server-side timeout.
+                    Log($"DepotKey timeout: depot={item.depotId} app={item.parentApp} (no answer in 45s, retried)");
+                    await Task.Delay(500);
+                    result = await TryGetKeyAsync(item.depotId, item.parentApp);
+                }
+                else if (result.Result is EResult.Timeout or EResult.NoConnection or EResult.ServiceUnavailable)
                 {
                     await Task.Delay(500);
-                    result = await _steamApps.GetDepotDecryptionKey(item.depotId, item.parentApp);
+                    result = await TryGetKeyAsync(item.depotId, item.parentApp);
                 }
-                if (result.Result == EResult.OK && result.DepotKey is { Length: > 0 })
+                if (result != null && result.Result == EResult.OK && result.DepotKey is { Length: > 0 })
                 {
                     var key = Convert.ToHexString(result.DepotKey).ToLowerInvariant();
                     lock (_sync) _depotKeys[item.depotId] = key;
@@ -881,8 +888,10 @@ internal partial class SteamSession
                 }
                 else
                 {
-                    var reason = KeyFailureReason(result.Result);
-                    Log($"DepotKey denied: depot={item.depotId} app={item.parentApp} result={result.Result}");
+                    var reason = result == null
+                        ? "timed out (Steam didn't answer)"
+                        : KeyFailureReason(result.Result);
+                    Log($"DepotKey denied: depot={item.depotId} app={item.parentApp} result={result?.Result.ToString() ?? "no-answer"}");
                     lock (failures) failures.Add((item.depotId, reason));
                     Interlocked.Increment(ref fail);
                 }
@@ -1104,13 +1113,9 @@ internal partial class SteamSession
                 foreach (var t in targets)
                 {
                     ct.ThrowIfCancellationRequested();
-                    try
-                    {
-                        var code = await content.GetManifestRequestCode(
-                            t.depotId, t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId, null, null);
-                        if (code != 0) codes[(t.depotId, t.manifestId)] = code;
-                    }
-                    catch { }
+                    var code = await TryGetSteamCodeAsync(content, t.depotId,
+                        t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId);
+                    if (code != 0) codes[(t.depotId, t.manifestId)] = code;
                 }
             }
             return codes;
@@ -1123,16 +1128,25 @@ internal partial class SteamSession
             foreach (var t in targets)
             {
                 ct.ThrowIfCancellationRequested();
-                try
-                {
-                    var code = await content.GetManifestRequestCode(
-                        t.depotId, t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId, null, null);
-                    if (code != 0) codes[(t.depotId, t.manifestId)] = code;
-                }
-                catch { }
+                var code = await TryGetSteamCodeAsync(content, t.depotId,
+                    t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId);
+                if (code != 0) codes[(t.depotId, t.manifestId)] = code;
             }
         }, ct);
         return codes;
+    }
+
+    /// <summary>One Steam request-code call with a timeout. 0 when Steam never answers.</summary>
+    private static async Task<ulong> TryGetSteamCodeAsync(
+        SteamContent content, uint depotId, uint appId, ulong manifestId)
+    {
+        try
+        {
+            return await WithTimeout(
+                async () => await content.GetManifestRequestCode(depotId, appId, manifestId, null, null),
+                TimeSpan.FromSeconds(30));
+        }
+        catch { return 0; }
     }
 
     /// <summary>Runs work on a throwaway anonymous Steam session (~10-30s).
@@ -1256,7 +1270,8 @@ internal partial class SteamSession
                 var content = _steamClient.GetHandler<SteamContent>();
                 if (content != null)
                 {
-                    var list = await content.GetServersForSteamPipe().WaitAsync(ct);
+                    var list = await WithTimeout(
+                        () => content.GetServersForSteamPipe(), TimeSpan.FromSeconds(30));
                     var filtered = FilterCdnServers(list);
                     if (filtered.Count > 0) return _cdnServers = filtered;
                 }
@@ -1282,11 +1297,12 @@ internal partial class SteamSession
         List<Server> found = [];
         await RunAnonymousAsync(async client =>
         {
+            var content = client.GetHandler<SteamContent>();
+            if (content == null) return;
             try
             {
-                var content = client.GetHandler<SteamContent>();
-                if (content == null) return;
-                var list = await content.GetServersForSteamPipe().WaitAsync(ct);
+                var list = await WithTimeout(
+                    () => content.GetServersForSteamPipe(), TimeSpan.FromSeconds(30));
                 found = FilterCdnServers(list);
             }
             catch { }
@@ -1331,8 +1347,10 @@ internal partial class SteamSession
             {
                 var content = _steamClient.GetHandler<SteamContent>();
                 if (content == null) return false;
-                var token = await content.GetCDNAuthToken(
-                    item.depotId, item.parentApp != 0 ? item.parentApp : item.appId, tried[0].Host!);
+                var token = await WithTimeout(
+                    async () => await content.GetCDNAuthToken(
+                        item.depotId, item.parentApp != 0 ? item.parentApp : item.appId, tried[0].Host!),
+                    TimeSpan.FromSeconds(30));
                 if (!string.IsNullOrEmpty(token?.Token))
                 {
                     using var cdn = new Client(_steamClient);
@@ -1378,6 +1396,20 @@ internal partial class SteamSession
     {
         using var cts = new CancellationTokenSource(timeout);
         return await job().WaitAsync(cts.Token);
+    }
+
+    /// <summary>One depot-key request with a timeout. Null when Steam never answers.</summary>
+    private async Task<SteamApps.DepotKeyCallback?> TryGetKeyAsync(uint depotId, uint parentApp)
+    {
+        var apps = _steamApps;
+        if (apps == null) return null;
+        try
+        {
+            return await WithTimeout(
+                async () => await apps.GetDepotDecryptionKey(depotId, parentApp),
+                TimeSpan.FromSeconds(45));
+        }
+        catch { return null; }
     }
 
     /// <summary>

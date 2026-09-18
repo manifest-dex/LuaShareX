@@ -316,4 +316,65 @@ public partial class GamesViewModel : ObservableObject
         StatusMessage = $"Copied {selected.Count} game(s) to clipboard{KeyFailureSuffix(keyFailures)}";
         _toast.Show("Copy", $"Copied {selected.Count} game(s) to clipboard.");
     }
+
+    /// <summary>Fetches depot keys for the whole library and reports every
+    /// failure with its reason, instead of exporting one game at a time.
+    /// Full per-depot report goes to a temp file (path shown in status).</summary>
+    [RelayCommand]
+    private async Task TestAllKeys()
+    {
+        var all = _allTiles.Select(t => t.Game).ToList();
+        if (all.Count == 0)
+        {
+            StatusMessage = "Library is empty — nothing to test";
+            _toast.Show("Key test", "Library is empty.", error: true);
+            return;
+        }
+
+        IsLoading = true;
+        StatusMessage = $"Testing keys across {all.Count} game(s)... this can take a while";
+        try
+        {
+            var (_, _, _, failures) = await _steam.EnsureExportDataAsync(all);
+            foreach (var tile in _allTiles)
+                tile.RefreshFromGame();
+
+            var depotToGame = all
+                .SelectMany(g => g.Depots.Select(d => (d.DepotId, g)))
+                .ToLookup(t => t.DepotId, t => t.g);
+            var lines = failures
+                .OrderBy(f => f.depotId)
+                .Select(f =>
+                {
+                    var owner = depotToGame[f.depotId].FirstOrDefault();
+                    return $"{owner?.Name ?? "Unknown"} ({owner?.AppId}) — Depot {f.depotId}: {f.reason}";
+                })
+                .ToList();
+
+            var report = Path.Combine(Path.GetTempPath(), $"luasharex_keytest_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+            File.WriteAllLines(report,
+                new[] { $"LuaShareX key test — {DateTime.Now:G} — {all.Count} game(s), {failures.Count} failure(s)", "" }.Concat(lines));
+
+            if (failures.Count == 0)
+            {
+                StatusMessage = $"Key test: all {all.Count} game(s) OK ({report})";
+                _toast.Show("Key test", $"All {all.Count} game(s) OK.");
+            }
+            else
+            {
+                StatusMessage = $"Key test: {failures.Count} failure(s) — {string.Join("; ", lines.Take(3))}" +
+                    (failures.Count > 3 ? "; …" : "") + $" (full report: {report})";
+                _toast.Show("Key test", $"{failures.Count} failure(s). Full report: {Path.GetFileName(report)}.", error: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Key test failed: {ex.Message}";
+            _toast.Show("Key test", $"Key test failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
 }

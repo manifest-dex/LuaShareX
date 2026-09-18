@@ -410,6 +410,7 @@ internal partial class SteamSession
                         IsShared = x.IsShared,
                         SharedFrom = x.SharedFrom,
                         IsRedistributable = x.IsRedistributable,
+                        IsDlc = x.IsDlc,
                     }).ToList()
                     : [];
             }
@@ -940,22 +941,16 @@ internal partial class SteamSession
         await ClassifySharedDepotsAsync();
         RefreshGamesFromStore(games);
 
-        // Licensed DLC apps, for the ownership gate below.
-        Dictionary<uint, HashSet<uint>> dlcSets;
+        // Licensed apps, for the ownership gate below.
         HashSet<uint> owned;
-        lock (_sync)
-        {
-            dlcSets = appIds.Where(id => _appDlcs.ContainsKey(id))
-                .ToDictionary(id => id, id => _appDlcs[id].ToHashSet());
-            owned = _ownedAppIds.ToHashSet();
-        }
+        lock (_sync) owned = _ownedAppIds.ToHashSet();
 
         var missing = games
             .SelectMany(g => g.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey))
                 .Select(d => (appId: g.AppId, depotId: d.DepotId, manifest: d.ManifestId, size: d.ManifestSize,
-                              parent: d.ParentAppId != 0 ? d.ParentAppId : g.AppId)))
+                              parent: d.ParentAppId != 0 ? d.ParentAppId : g.AppId, dlc: d.IsDlc)))
             .Concat(games.Where(g => string.IsNullOrEmpty(g.BaseDepotKey))
-                .Select(g => (appId: g.AppId, depotId: g.AppId, manifest: "", size: 0UL, parent: g.AppId)))
+                .Select(g => (appId: g.AppId, depotId: g.AppId, manifest: "", size: 0UL, parent: g.AppId, dlc: false)))
             .Distinct()
             .ToList();
 
@@ -965,9 +960,7 @@ internal partial class SteamSession
         // DLC-gated depots whose DLC isn't licensed (e.g. Back 4 Blood's 1142380):
         // Steam would deny, so only ask for depots we own.
         var unowned = missing.Except(empty)
-            .Where(m => m.parent != m.appId
-                && dlcSets.TryGetValue(m.appId, out var dlcs) && dlcs.Contains(m.parent)
-                && !owned.Contains(m.parent))
+            .Where(m => m.parent != m.appId && m.dlc && !owned.Contains(m.parent))
             .ToList();
         var wanted = missing.Except(empty).Except(unowned).Select(m => (m.appId, m.depotId)).ToList();
         if (empty.Count > 0)
@@ -1023,6 +1016,7 @@ internal partial class SteamSession
                         IsShared = x.IsShared,
                         SharedFrom = x.SharedFrom,
                         IsRedistributable = x.IsRedistributable,
+                        IsDlc = x.IsDlc,
                         ManifestId = x.ManifestId,
                         ManifestSize = x.ManifestSize,
                     }).ToList()
@@ -1908,6 +1902,7 @@ internal partial class SteamSession
                                 IsShared = parentApp != appId,
                                 SharedFrom = parentApp != appId ? parentApp.ToString() : "",
                                 IsRedistributable = sharedInstall,
+                                IsDlc = dlcApp != 0,
                                 ManifestId = manifestId,
                                 ManifestSize = manifestSize,
                             });

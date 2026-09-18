@@ -25,6 +25,10 @@ public class SteamDepot
     /// <summary>True when Steam's own data marks this as shared redistributable content
     /// (sharedinstall flag or shared from a Tool-type app). Decided from PICS, never names.</summary>
     public bool IsRedistributable { get; set; }
+    /// <summary>True when PICS carries a dlcappid on this depot: its key is licensed
+    /// through that DLC app, not the base game. Set at parse time, independent of
+    /// whether the game's listofdlc was ever seen.</summary>
+    public bool IsDlc { get; set; }
     /// <summary>Current manifest gid for the public branch (setManifestid line). Empty when unknown.</summary>
     public string ManifestId { get; set; } = "";
     /// <summary>Manifest size in bytes (setManifestid line). 0 when unknown.</summary>

@@ -45,6 +45,9 @@ public partial class MainViewModel : ObservableObject
 
     public GamesViewModel GamesVm { get; }
 
+    /// <summary>Toast stack bound by the bottom-right notification list.</summary>
+    public ToastService Toasts => _toast;
+
     public bool ContentVisible => IsReady && !ShowLoginPrompt && !ShowQrLogin && !ShowGuardPrompt;
 
     partial void OnShowLoginPromptChanged(bool value) => OnPropertyChanged(nameof(ContentVisible));

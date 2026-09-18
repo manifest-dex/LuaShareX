@@ -12,8 +12,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         InitializeComponent();
     }
 
-    public Wpf.Ui.Controls.SnackbarPresenter ToastPresenter => RootSnackbar;
-
     private void Tile_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is Border { DataContext: GameTileViewModel tile } &&

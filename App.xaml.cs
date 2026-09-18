@@ -30,7 +30,6 @@ public partial class App : Application
         {
             var mainWindow = _services.GetRequiredService<MainWindow>();
             mainWindow.DataContext = _services.GetRequiredService<MainViewModel>();
-            _services.GetRequiredService<ToastService>().Attach(mainWindow.ToastPresenter);
             mainWindow.Show();
         }
         catch (Exception ex)

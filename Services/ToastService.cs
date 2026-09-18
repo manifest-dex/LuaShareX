@@ -1,38 +1,63 @@
+using System.Collections.ObjectModel;
 using System.Windows;
-using Wpf.Ui;
-using Wpf.Ui.Controls;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace LuaShareX.Services;
 
-/// <summary>
-/// App-wide bottom-right toast feedback. Thin wrapper over Wpf.Ui's SnackbarService. The presenter
-/// is attached once from App.OnStartup. Safe to call from any thread.
-/// </summary>
-public class ToastService
+public partial class ToastNotification : ObservableObject
 {
-    private readonly SnackbarService _snackbar = new();
-    private SnackbarPresenter? _presenter;
+    public Guid Id { get; } = Guid.NewGuid();
+    [ObservableProperty] private string _title = "";
+    [ObservableProperty] private string _message = "";
+    [ObservableProperty] private bool _isError;
+}
 
-    /// <summary>Wire the presenter that hosts the toasts (called once after the window is built).</summary>
-    public void Attach(SnackbarPresenter presenter)
-    {
-        _presenter = presenter;
-        _snackbar.SetSnackbarPresenter(presenter);
-    }
+/// <summary>
+/// App-wide bottom-right toast stack. Multiple toasts show at once, each
+/// auto-dismissing after <see cref="Duration"/> (or via its close button).
+/// Safe to call from any thread.
+/// </summary>
+public partial class ToastService : ObservableObject
+{
+    /// <summary>How long each toast stays up.</summary>
+    public static TimeSpan Duration { get; set; } = TimeSpan.FromSeconds(8);
 
-    /// <summary>Show a transient toast (auto-dismiss). Marshals to the UI thread; no-ops if unattached.</summary>
+    private const int MaxVisible = 5;
+
+    public ObservableCollection<ToastNotification> Toasts { get; } = [];
+
+    /// <summary>Show a toast. Never blocks, never throws.</summary>
     public void Show(string title, string message, bool error = false)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null) return;
+        var toast = new ToastNotification { Title = title, Message = message, IsError = error };
+        RunOnUi(() =>
+        {
+            Toasts.Add(toast);
+            while (Toasts.Count > MaxVisible)
+                Toasts.RemoveAt(0);
+        });
+        _ = Task.Delay(Duration).ContinueWith(
+            _ => RunOnUi(() => Toasts.Remove(toast)),
+            TaskScheduler.Default);
+    }
 
-        void Post() => _snackbar.Show(
-            title, message,
-            error ? ControlAppearance.Caution : ControlAppearance.Secondary,
-            null,
-            TimeSpan.FromSeconds(3));
+    [RelayCommand]
+    private void Dismiss(ToastNotification? toast)
+    {
+        if (toast is null) return;
+        RunOnUi(() => Toasts.Remove(toast));
+    }
 
-        if (dispatcher.CheckAccess()) Post();
-        else dispatcher.Invoke(Post);
+    private static void RunOnUi(Action action)
+    {
+        try
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher is null) return;
+            if (dispatcher.CheckAccess()) action();
+            else dispatcher.BeginInvoke(action);
+        }
+        catch { /* shutting down */ }
     }
 }

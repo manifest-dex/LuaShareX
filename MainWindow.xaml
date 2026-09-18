@@ -302,13 +302,49 @@
             <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#6b7280" VerticalAlignment="Center" />
         </Border>
 
-        <!-- Bottom-right toasts (attached to ToastService in App.OnStartup) -->
-        <ui:SnackbarPresenter
-            x:Name="RootSnackbar"
-            Grid.RowSpan="3"
-            Margin="0,0,24,18"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Bottom"
-            Panel.ZIndex="100" />
+        <!-- Bottom-right toast stack (MainViewModel.Toasts). Several can show at once. -->
+        <ItemsControl Grid.RowSpan="3" Margin="0,0,24,18"
+                      HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                      Panel.ZIndex="100" Focusable="False"
+                      ItemsSource="{Binding Toasts.Toasts}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Vertical" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Width="330" Margin="0,6,0,0" Padding="12,10" CornerRadius="8"
+                            Background="#E8141418" BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="BorderBrush" Value="#22ffffff" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsError}" Value="True">
+                                        <Setter Property="BorderBrush" Value="#66f87171" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Message}" FontSize="11.5" Foreground="#9ca3af"
+                                           TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="✕" FontSize="10" Padding="6,2" Margin="8,0,0,0"
+                                    VerticalAlignment="Top" Cursor="Hand" Focusable="False"
+                                    Background="Transparent" BorderThickness="0" Foreground="#6b7280"
+                                    Command="{Binding DataContext.Toasts.DismissCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
     </Grid>
 </ui:FluentWindow>

@@ -153,8 +153,6 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <ui:Button Content="Refresh" Command="{Binding RefreshGamesCommand}" Margin="0,0,4,0" Padding="12,6" />
                                 <ui:Button Content="{Binding SelectAllText}" Command="{Binding ToggleSelectAllCommand}" Margin="0,0,4,0" Padding="12,6" />
-                                <CheckBox Content="Manifests" IsChecked="{Binding AutoDownloadManifests}" VerticalAlignment="Center" Margin="0,0,8,0"
-                                          ToolTip="Auto-download .manifest files next to the export (ManifestDeX codes + Steam CDN)" />
                                 <ui:Button Content="{Binding ExportText}" Command="{Binding ExportSelectedCommand}" Padding="12,6" Appearance="Primary" />
                             </StackPanel>
                         </Grid>

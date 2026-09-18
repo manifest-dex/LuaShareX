@@ -24,7 +24,6 @@ public partial class GamesViewModel : ObservableObject
     [ObservableProperty] private int _selectedCount;
     [ObservableProperty] private string _selectAllText = "Select All";
     [ObservableProperty] private string _exportText = "Export .lua";
-    [ObservableProperty] private bool _autoDownloadManifests = true;
 
     partial void OnSearchTextChanged(string value)
     {
@@ -210,7 +209,6 @@ public partial class GamesViewModel : ObservableObject
                 _export.SaveToFile(content, dialog.FileName);
                 StatusMessage = $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}";
                 _toast.Show("Export", $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}.");
-                await MaybeDownloadManifestsAsync(selected, dialog.FileName);
             }
             return;
         }
@@ -227,40 +225,6 @@ public partial class GamesViewModel : ObservableObject
             _export.SaveMultipleToZip(selected, zipDialog.FileName);
             StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}";
             _toast.Show("Export", $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}.");
-            await MaybeDownloadManifestsAsync(selected, zipDialog.FileName);
-        }
-    }
-
-    /// <summary>Auto-downloads .manifest files next to a saved export when enabled.
-    /// Never fails the export itself: lua/zip is already on disk by now.</summary>
-    private async Task MaybeDownloadManifestsAsync(List<SteamGame> selected, string savedPath)
-    {
-        if (!AutoDownloadManifests) return;
-        if (!selected.SelectMany(g => g.Depots).Any(d => !string.IsNullOrEmpty(d.ManifestId))) return;
-        var folder = Path.GetDirectoryName(savedPath);
-        if (string.IsNullOrEmpty(folder)) return;
-
-        IsLoading = true;
-        try
-        {
-            StatusMessage = "Downloading manifests...";
-            var prog = new Progress<double>(p => StatusMessage = $"Downloading manifests... {p:P0}");
-            var (ok, skipped, fail) = await _steam.DownloadManifestsAsync(selected, folder, prog);
-            StatusMessage = $"Manifests: {ok} downloaded, {skipped} skipped{(fail > 0 ? $", {fail} failed" : "")}";
-            _toast.Show("Manifests",
-                $"Downloaded {ok} manifest(s) beside {Path.GetFileName(savedPath)}" +
-                (skipped > 0 ? $", {skipped} already present" : "") +
-                (fail > 0 ? $", {fail} failed." : "."),
-                error: ok == 0 && fail > 0);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Manifest download failed: {ex.Message}";
-            _toast.Show("Manifests", $"Manifest download failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            IsLoading = false;
         }
     }
 

@@ -131,4 +131,12 @@ public sealed class SteamService
         if (session != _session) throw new OperationCanceledException("The account changed. Select games from the current account and try again.");
         return result;
     }
+
+    /// <summary>Auto-downloads .manifest files for the given games into folder.</summary>
+    public Task<(int ok, int skipped, int fail)> DownloadManifestsAsync(
+        List<SteamGame> games, string folder, IProgress<double>? progress, CancellationToken ct = default)
+    {
+        var session = _session;
+        return session.DownloadManifestsAsync(games, folder, progress, ct);
+    }
 }

@@ -1022,6 +1022,16 @@ internal partial class SteamSession
                         depot.Name = pics.Name;
                     if (depot.ParentAppId == 0)
                         depot.ParentAppId = pics.ParentAppId;
+                    else if (depot.ParentAppId == game.AppId
+                        && pics.ParentAppId != 0 && pics.ParentAppId != game.AppId)
+                    {
+                        // Local manifests assume own-app ownership; PICS knows better
+                        // (dlcappid / depotfromapp). Adopt it so key requests go out
+                        // with the owning app instead of being denied.
+                        depot.ParentAppId = pics.ParentAppId;
+                        depot.IsShared = true;
+                        depot.SharedFrom = pics.ParentAppId.ToString();
+                    }
                     depot.IsShared |= pics.IsShared;
                     if (string.IsNullOrEmpty(depot.SharedFrom))
                         depot.SharedFrom = pics.SharedFrom;
@@ -1788,6 +1798,7 @@ internal partial class SteamSession
                         {
                             string depotName = $"Depot {depotId}";
                             uint parentApp = appId;
+                            uint dlcApp = 0;
                             bool sharedInstall = false;
                             string manifestId = "";
                             ulong manifestSize = 0;
@@ -1799,6 +1810,10 @@ internal partial class SteamSession
                                 else if (field.Name == "depotfromapp"
                                     && uint.TryParse(field.Value, out var parent))
                                     parentApp = parent;
+                                else if (field.Name == "dlcappid"
+                                    && uint.TryParse(field.Value, out var dlc)
+                                    && dlc != 0 && dlc != appId)
+                                    dlcApp = dlc;
                                 else if (field.Name == "sharedinstall"
                                     && field.Value == "1")
                                     sharedInstall = true;
@@ -1828,6 +1843,11 @@ internal partial class SteamSession
                                     }
                                 }
                             }
+                            // A dlcappid-gated depot is licensed through the DLC app, not the
+                            // base game: requesting its key with the game id is always denied.
+                            // Route ownership (and the key request) to the DLC instead.
+                            if (dlcApp != 0 && parentApp == appId)
+                                parentApp = dlcApp;
                             depots.Add(new SteamDepot
                             {
                                 DepotId = depotId,

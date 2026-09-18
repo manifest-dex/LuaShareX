@@ -838,7 +838,7 @@ internal partial class SteamSession
     /// blocking the next. Returns (succeeded, failed) counts.
     /// </summary>
     private async Task<(int ok, int fail)> FetchDepotKeysParallelAsync(
-        List<(uint appId, uint depotId)> missing, int emptySkipped = 0)
+        List<(uint appId, uint depotId)> missing, int emptySkipped = 0, int unownedSkipped = 0)
     {
         if (_steamApps == null || missing.Count == 0) return (0, 0);
 
@@ -895,8 +895,8 @@ internal partial class SteamSession
         });
 
         await Task.WhenAll(tasks);
-        if (ok > 0 || fail > 0 || emptySkipped > 0)
-            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} denied by Steam" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}.",
+        if (ok > 0 || fail > 0 || emptySkipped > 0 || unownedSkipped > 0)
+            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} denied by Steam" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}{(unownedSkipped > 0 ? $", {unownedSkipped} unowned DLC skipped" : "")}.",
                 error: ok == 0 && fail > 0));
         return (ok, fail);
     }
@@ -940,22 +940,42 @@ internal partial class SteamSession
         await ClassifySharedDepotsAsync();
         RefreshGamesFromStore(games);
 
+        // Licensed DLC apps, for the ownership gate below.
+        Dictionary<uint, HashSet<uint>> dlcSets;
+        HashSet<uint> owned;
+        lock (_sync)
+        {
+            dlcSets = appIds.Where(id => _appDlcs.ContainsKey(id))
+                .ToDictionary(id => id, id => _appDlcs[id].ToHashSet());
+            owned = _ownedAppIds.ToHashSet();
+        }
+
         var missing = games
             .SelectMany(g => g.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey))
-                .Select(d => (appId: g.AppId, depotId: d.DepotId, manifest: d.ManifestId, size: d.ManifestSize)))
+                .Select(d => (appId: g.AppId, depotId: d.DepotId, manifest: d.ManifestId, size: d.ManifestSize,
+                              parent: d.ParentAppId != 0 ? d.ParentAppId : g.AppId)))
             .Concat(games.Where(g => string.IsNullOrEmpty(g.BaseDepotKey))
-                .Select(g => (appId: g.AppId, depotId: g.AppId, manifest: "", size: 0UL)))
+                .Select(g => (appId: g.AppId, depotId: g.AppId, manifest: "", size: 0UL, parent: g.AppId)))
             .Distinct()
             .ToList();
 
         // Empty depots (known manifest, zero bytes — e.g. Yakuza 0's 638974)
         // have no decryption key; Steam denies the request, so don't ask.
         var empty = missing.Where(m => !string.IsNullOrEmpty(m.manifest) && m.size == 0).ToList();
-        var wanted = missing.Except(empty).Select(m => (m.appId, m.depotId)).ToList();
+        // DLC-gated depots whose DLC isn't licensed (e.g. Back 4 Blood's 1142380):
+        // Steam would deny, so only ask for depots we own.
+        var unowned = missing.Except(empty)
+            .Where(m => m.parent != m.appId
+                && dlcSets.TryGetValue(m.appId, out var dlcs) && dlcs.Contains(m.parent)
+                && !owned.Contains(m.parent))
+            .ToList();
+        var wanted = missing.Except(empty).Except(unowned).Select(m => (m.appId, m.depotId)).ToList();
         if (empty.Count > 0)
             Log($"Skipping {empty.Count} empty depot(s) that need no key: {string.Join(",", empty.Select(m => m.depotId))}");
+        if (unowned.Count > 0)
+            Log($"Skipping {unowned.Count} unowned DLC depot(s): {string.Join(",", unowned.Select(m => $"{m.depotId}(dlc {m.parent})"))}");
 
-        var (ok, fail) = await FetchDepotKeysParallelAsync(wanted, empty.Count);
+        var (ok, fail) = await FetchDepotKeysParallelAsync(wanted, empty.Count, unowned.Count);
 
         // PICS access tokens are unsigned 64-bit values. Ownership tickets from
         // GetAppOwnershipTicket are opaque byte blobs and are not addtoken values.

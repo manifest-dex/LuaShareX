@@ -164,6 +164,19 @@ public partial class GamesViewModel : ObservableObject
         ExportText = SelectedCount > 1 ? "Export .zip" : "Export .lua";
     }
 
+    /// <summary>Failure reasons that stay readable in the status bar, e.g.
+    /// " (Depot 1311106: timed out)". Empty when everything was fetched.</summary>
+    private static string KeyFailureSuffix(List<(uint depotId, string reason)> failures)
+    {
+        if (failures.Count == 0) return "";
+        var shown = failures
+            .OrderBy(f => f.depotId)
+            .Take(4)
+            .Select(f => $"Depot {f.depotId}: {f.reason}");
+        var extra = failures.Count > 4 ? $"; +{failures.Count - 4} more" : "";
+        return $" ({string.Join("; ", shown)}{extra})";
+    }
+
     [RelayCommand]
     private async Task ExportSelected()
     {
@@ -177,9 +190,10 @@ public partial class GamesViewModel : ObservableObject
 
         IsLoading = true;
         StatusMessage = $"Fetching keys for {selected.Count} game(s)...";
+        List<(uint depotId, string reason)> keyFailures = [];
         try
         {
-            await _steam.EnsureExportDataAsync(selected);
+            (_, _, _, keyFailures) = await _steam.EnsureExportDataAsync(selected);
         }
         catch (Exception ex)
         {
@@ -208,7 +222,7 @@ public partial class GamesViewModel : ObservableObject
             if (dialog.ShowDialog() == true)
             {
                 _export.SaveToFile(content, dialog.FileName);
-                StatusMessage = $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}";
+                StatusMessage = $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}{KeyFailureSuffix(keyFailures)}";
                 _toast.Show("Export", $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}.");
                 await MaybeDownloadManifestsAsync(selected);
             }
@@ -225,7 +239,7 @@ public partial class GamesViewModel : ObservableObject
         if (zipDialog.ShowDialog() == true)
         {
             _export.SaveMultipleToZip(selected, zipDialog.FileName);
-            StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}";
+            StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}{KeyFailureSuffix(keyFailures)}";
             _toast.Show("Export", $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}.");
             await MaybeDownloadManifestsAsync(selected);
         }
@@ -275,9 +289,10 @@ public partial class GamesViewModel : ObservableObject
 
         IsLoading = true;
         StatusMessage = $"Fetching keys for {selected.Count} game(s)...";
+        List<(uint depotId, string reason)> keyFailures = [];
         try
         {
-            await _steam.EnsureExportDataAsync(selected);
+            (_, _, _, keyFailures) = await _steam.EnsureExportDataAsync(selected);
         }
         catch (Exception ex)
         {
@@ -298,7 +313,7 @@ public partial class GamesViewModel : ObservableObject
             : _export.ExportMultiple(selected);
 
         Clipboard.SetText(content);
-        StatusMessage = $"Copied {selected.Count} game(s) to clipboard";
+        StatusMessage = $"Copied {selected.Count} game(s) to clipboard{KeyFailureSuffix(keyFailures)}";
         _toast.Show("Copy", $"Copied {selected.Count} game(s) to clipboard.");
     }
 }

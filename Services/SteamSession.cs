@@ -836,12 +836,12 @@ internal partial class SteamSession
     /// Steam exposes no batch endpoint for depot keys (single-depot requests
     /// only — DepotDownloader loops the same way), so the list goes out
     /// 8-at-a-time instead of one "give me the key" per depot round-trip
-    /// blocking the next. Returns (succeeded, failed) counts.
+    /// blocking the next. Returns (succeeded, failed, per-depot reasons).
     /// </summary>
-    private async Task<(int ok, int fail)> FetchDepotKeysParallelAsync(
+    private async Task<(int ok, int fail, List<(uint depotId, string reason)> failures)> FetchDepotKeysParallelAsync(
         List<(uint appId, uint depotId)> missing, int emptySkipped = 0, int unownedSkipped = 0)
     {
-        if (_steamApps == null || missing.Count == 0) return (0, 0);
+        if (_steamApps == null || missing.Count == 0) return (0, 0, []);
 
         // Resolve the final work list up front: skip keys we already hold and
         // pin each depot's owning app now, so every spawned task does exactly
@@ -855,10 +855,11 @@ internal partial class SteamSession
                 .Distinct()
                 .ToList();
         }
-        if (todo.Count == 0) return (0, 0);
+        if (todo.Count == 0) return (0, 0, []);
 
         UiInvoke(() => _toast.Show("Depot keys", $"Fetching {todo.Count} key(s) from Steam..."));
         int ok = 0, fail = 0;
+        var failures = new List<(uint depotId, string reason)>();
         using var gate = new SemaphoreSlim(8);
 
         var tasks = todo.Select(async item =>
@@ -880,13 +881,16 @@ internal partial class SteamSession
                 }
                 else
                 {
+                    var reason = KeyFailureReason(result.Result);
                     Log($"DepotKey denied: depot={item.depotId} app={item.parentApp} result={result.Result}");
+                    lock (failures) failures.Add((item.depotId, reason));
                     Interlocked.Increment(ref fail);
                 }
             }
             catch (Exception ex)
             {
                 Log($"DepotKey error: depot={item.depotId} app={item.parentApp}: {ex.Message}");
+                lock (failures) failures.Add((item.depotId, ex.Message));
                 Interlocked.Increment(ref fail);
             }
             finally
@@ -897,10 +901,19 @@ internal partial class SteamSession
 
         await Task.WhenAll(tasks);
         if (ok > 0 || fail > 0 || emptySkipped > 0 || unownedSkipped > 0)
-            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} denied by Steam" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}{(unownedSkipped > 0 ? $", {unownedSkipped} unowned DLC skipped" : "")}.",
+            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} failed" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}{(unownedSkipped > 0 ? $", {unownedSkipped} unowned DLC skipped" : "")}.",
                 error: ok == 0 && fail > 0));
-        return (ok, fail);
+        return (ok, fail, failures);
     }
+
+    /// <summary>Human reason for a failed depot-key request (shown in the UI, not just the log).</summary>
+    private static string KeyFailureReason(EResult result) => result switch
+    {
+        EResult.Timeout or EResult.NoConnection or EResult.ServiceUnavailable
+            => "timed out (Steam didn't answer)",
+        EResult.AccessDenied => "not licensed to this account",
+        _ => $"Steam answered {result}",
+    };
 
     private uint ResolveParentApp(uint appId, uint depotId)
     {
@@ -921,19 +934,19 @@ internal partial class SteamSession
     /// <summary>
     /// Export-time fetch: ensures the given games have fresh depot lists
     /// (names, parents, redist flags), depot keys and app tokens — but only
-    /// for these games, nothing bulk. Returns (keysOk, keysFail, tokensOk).
-    /// Mutates the passed game objects in place.
+    /// for these games, nothing bulk. Returns (keysOk, keysFail, tokensOk,
+    /// per-depot key failure reasons). Mutates the passed game objects in place.
     /// </summary>
-    public async Task<(int keysOk, int keysFail, int tokensOk)> EnsureExportDataAsync(List<SteamGame> games)
+    public async Task<(int keysOk, int keysFail, int tokensOk, List<(uint depotId, string reason)> keyFailures)> EnsureExportDataAsync(List<SteamGame> games)
     {
-        if (games.Count == 0) return (0, 0, 0);
+        if (games.Count == 0) return (0, 0, 0, []);
 
         var appIds = games.Select(g => g.AppId).Distinct().ToList();
 
         if (_steamApps == null || !IsSteamKitConnected)
         {
             RefreshGamesFromStore(games);
-            return (0, 0, 0);
+            return (0, 0, 0, []);
         }
 
         UiInvoke(() => OnStatusUpdate?.Invoke($"Preparing {games.Count} game(s)..."));
@@ -968,7 +981,7 @@ internal partial class SteamSession
         if (unowned.Count > 0)
             Log($"Skipping {unowned.Count} unowned DLC depot(s): {string.Join(",", unowned.Select(m => $"{m.depotId}(dlc {m.parent})"))}");
 
-        var (ok, fail) = await FetchDepotKeysParallelAsync(wanted, empty.Count, unowned.Count);
+        var (ok, fail, failures) = await FetchDepotKeysParallelAsync(wanted, empty.Count, unowned.Count);
 
         // PICS access tokens are unsigned 64-bit values. Ownership tickets from
         // GetAppOwnershipTicket are opaque byte blobs and are not addtoken values.
@@ -984,7 +997,7 @@ internal partial class SteamSession
 
         RefreshGamesFromStore(games);
         Log($"Export prep: {ok} keys ok, {fail} denied, {tokensOk} app tokens");
-        return (ok, fail, tokensOk);
+        return (ok, fail, tokensOk, failures);
     }
 
     /// <summary>

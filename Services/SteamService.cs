@@ -122,7 +122,7 @@ public sealed class SteamService
     public List<SteamGame> GetLicensedGames() => _session.GetLicensedGames();
     public List<SteamGame> GetAllGames() => _session.GetAllGames();
 
-    public async Task<(int keysOk, int keysFail, int tokensOk)> EnsureExportDataAsync(List<SteamGame> games)
+    public async Task<(int keysOk, int keysFail, int tokensOk, List<(uint depotId, string reason)> keyFailures)> EnsureExportDataAsync(List<SteamGame> games)
     {
         var session = _session;
         if (IsAccountSession && !session.IsSteamKitConnected)

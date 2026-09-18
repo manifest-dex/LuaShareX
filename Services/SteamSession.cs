@@ -838,7 +838,7 @@ internal partial class SteamSession
     /// blocking the next. Returns (succeeded, failed) counts.
     /// </summary>
     private async Task<(int ok, int fail)> FetchDepotKeysParallelAsync(
-        List<(uint appId, uint depotId)> missing)
+        List<(uint appId, uint depotId)> missing, int emptySkipped = 0)
     {
         if (_steamApps == null || missing.Count == 0) return (0, 0);
 
@@ -895,8 +895,8 @@ internal partial class SteamSession
         });
 
         await Task.WhenAll(tasks);
-        if (ok > 0 || fail > 0)
-            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} denied by Steam" : "")}.",
+        if (ok > 0 || fail > 0 || emptySkipped > 0)
+            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} denied by Steam" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}.",
                 error: ok == 0 && fail > 0));
         return (ok, fail);
     }
@@ -942,13 +942,20 @@ internal partial class SteamSession
 
         var missing = games
             .SelectMany(g => g.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey))
-                .Select(d => (appId: g.AppId, depotId: d.DepotId)))
+                .Select(d => (appId: g.AppId, depotId: d.DepotId, manifest: d.ManifestId, size: d.ManifestSize)))
             .Concat(games.Where(g => string.IsNullOrEmpty(g.BaseDepotKey))
-                .Select(g => (appId: g.AppId, depotId: g.AppId)))
+                .Select(g => (appId: g.AppId, depotId: g.AppId, manifest: "", size: 0UL)))
             .Distinct()
             .ToList();
 
-        var (ok, fail) = await FetchDepotKeysParallelAsync(missing);
+        // Empty depots (known manifest, zero bytes — e.g. Yakuza 0's 638974)
+        // have no decryption key; Steam denies the request, so don't ask.
+        var empty = missing.Where(m => !string.IsNullOrEmpty(m.manifest) && m.size == 0).ToList();
+        var wanted = missing.Except(empty).Select(m => (m.appId, m.depotId)).ToList();
+        if (empty.Count > 0)
+            Log($"Skipping {empty.Count} empty depot(s) that need no key: {string.Join(",", empty.Select(m => m.depotId))}");
+
+        var (ok, fail) = await FetchDepotKeysParallelAsync(wanted, empty.Count);
 
         // PICS access tokens are unsigned 64-bit values. Ownership tickets from
         // GetAppOwnershipTicket are opaque byte blobs and are not addtoken values.

@@ -132,11 +132,11 @@ public sealed class SteamService
         return result;
     }
 
-    /// <summary>Auto-downloads .manifest files for the given games into folder.</summary>
+    /// <summary>Auto-downloads .manifest files for the given games straight into Steam's depotcache.</summary>
     public Task<(int ok, int skipped, int fail)> DownloadManifestsAsync(
-        List<SteamGame> games, string folder, IProgress<double>? progress, CancellationToken ct = default)
+        List<SteamGame> games, IProgress<double>? progress, CancellationToken ct = default)
     {
         var session = _session;
-        return session.DownloadManifestsAsync(games, folder, progress, ct);
+        return session.DownloadManifestsAsync(games, progress, ct);
     }
 }

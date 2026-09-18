@@ -1025,53 +1025,118 @@ internal partial class SteamSession
         }
     }
 
-    // ── Manifest downloads (ManifestDeX codes + Steam CDN) ─────────
-
-    private const string ManifestCodeApi = "https://manifest.manifestdex.com";
-    private const string ManifestCodeUserAgent = "ManifestDeX/1.0";
-    /// <summary>Min gap between ManifestDeX code requests (60/min limit).</summary>
-    private static readonly TimeSpan ManifestCodePacing = TimeSpan.FromSeconds(1.2);
+    // ── Manifest downloads (Steam request codes + Steam CDN) ───
 
     private List<Server>? _cdnServers;
 
-    /// <summary>Request code for a manifest gid from the ManifestDeX Code API. Null when unavailable.</summary>
-    private static async Task<ulong?> GetManifestRequestCodeAsync(ulong manifestId, CancellationToken ct)
+    /// <summary>Steam's depotcache folder — downloaded manifests install here.</summary>
+    private string? DepotCacheDir =>
+        _steamInstallPath is { } p ? Path.Combine(p, "depotcache") : null;
+
+    /// <summary>
+    /// Manifest request codes straight from Steam (no third party).
+    /// Logged-in sessions get codes for owned depots; local mode tries a
+    /// single anonymous session (works for public depots).
+    /// </summary>
+    private async Task<Dictionary<(uint depotId, ulong manifestId), ulong>> GetSteamManifestCodesAsync(
+        List<(uint appId, uint depotId, ulong manifestId, uint parentApp)> targets, CancellationToken ct)
     {
-        for (int attempt = 0; attempt < 2; attempt++)
+        var codes = new Dictionary<(uint, ulong), ulong>();
+
+        if (_steamClient != null && IsSteamKitConnected)
         {
-            try
+            var content = _steamClient.GetHandler<SteamContent>();
+            if (content != null)
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{ManifestCodeApi}/{manifestId}");
-                req.Headers.UserAgent.ParseAdd(ManifestCodeUserAgent);
-                using var res = await _http.SendAsync(req, ct);
-                if ((int)res.StatusCode == 429)
+                foreach (var t in targets)
                 {
-                    var wait = res.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(30);
-                    if (wait > TimeSpan.FromSeconds(90)) return null;
-                    await Task.Delay(wait, ct);
-                    continue;
+                    ct.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var code = await content.GetManifestRequestCode(
+                            t.depotId, t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId, null, null);
+                        if (code != 0) codes[(t.depotId, t.manifestId)] = code;
+                    }
+                    catch { }
                 }
-                if (!res.IsSuccessStatusCode) return null;
-                var text = (await res.Content.ReadAsStringAsync(ct)).Trim();
-                if (ulong.TryParse(text, out var code) && code != 0)
-                    return code;
-                return null;
             }
-            catch (OperationCanceledException) { throw; }
-            catch { return null; }
+            return codes;
         }
-        return null;
+
+        await RunAnonymousAsync(async client =>
+        {
+            var content = client.GetHandler<SteamContent>();
+            if (content == null) return;
+            foreach (var t in targets)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var code = await content.GetManifestRequestCode(
+                        t.depotId, t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId, null, null);
+                    if (code != 0) codes[(t.depotId, t.manifestId)] = code;
+                }
+                catch { }
+            }
+        }, ct);
+        return codes;
+    }
+
+    /// <summary>Runs work on a throwaway anonymous Steam session (~10-30s).
+    /// Used in local mode for CDN server discovery and manifest request codes.</summary>
+    private static async Task RunAnonymousAsync(Func<SteamClient, Task> work, CancellationToken ct)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+        var client = new SteamClient();
+        var mgr = new CallbackManager(client);
+        var user = client.GetHandler<SteamUser>();
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        mgr.Subscribe<SteamClient.ConnectedCallback>(_ =>
+        {
+            try { user?.LogOnAnonymous(); }
+            catch { tcs.TrySetResult(false); }
+        });
+        mgr.Subscribe<SteamUser.LoggedOnCallback>(cb => tcs.TrySetResult(cb.Result == EResult.OK));
+        mgr.Subscribe<SteamClient.DisconnectedCallback>(_ => tcs.TrySetResult(false));
+
+        var pump = Task.Run(async () =>
+        {
+            while (!linked.Token.IsCancellationRequested)
+            {
+                try { mgr.RunWaitCallbacks(TimeSpan.FromMilliseconds(500)); } catch { }
+                try { await Task.Delay(100, linked.Token); } catch { break; }
+            }
+        }, linked.Token);
+
+        try
+        {
+            client.Connect();
+            if (!await tcs.Task.WaitAsync(linked.Token)) return;
+            await work(client);
+        }
+        catch { }
+        finally
+        {
+            try { linked.Cancel(); } catch { }
+            try { await pump; } catch { }
+            try { client.Disconnect(); } catch { }
+        }
     }
 
     /// <summary>
     /// Downloads .manifest files for every depot of the given games that has a
-    /// known manifest id. Files land as {depotid}_{gid}.manifest in folder
-    /// (Steam depotcache-compatible); existing files are skipped.
+    /// known manifest id. Files install as {depotid}_{gid}.manifest straight
+    /// into Steam's depotcache; existing files are skipped.
     /// Returns (downloaded, skipped, failed).
     /// </summary>
     public async Task<(int ok, int skipped, int fail)> DownloadManifestsAsync(
-        List<SteamGame> games, string folder, IProgress<double>? progress, CancellationToken ct = default)
+        List<SteamGame> games, IProgress<double>? progress, CancellationToken ct = default)
     {
+        var folder = DepotCacheDir;
+        if (string.IsNullOrEmpty(folder))
+            throw new InvalidOperationException("Steam folder not found, so there is no depotcache to install into.");
+
         var targets = games
             .SelectMany(g => g.Depots.Select(d => (appId: g.AppId, depot: d)))
             .Where(t => ulong.TryParse(t.depot.ManifestId, out var gid) && gid != 0)
@@ -1082,27 +1147,16 @@ internal partial class SteamSession
         if (targets.Count == 0) return (0, 0, 0);
         Directory.CreateDirectory(folder);
 
-        UiInvoke(() => OnStatusUpdate?.Invoke($"Requesting {targets.Count} manifest code(s)..."));
+        UiInvoke(() => OnStatusUpdate?.Invoke($"Requesting {targets.Count} manifest code(s) from Steam..."));
 
-        // Phase 1: codes, sequential + paced for the 60/min API limit.
-        var coded = new List<(uint appId, uint depotId, ulong manifestId, uint parentApp, string key, ulong code)>();
-        var lastCodeAt = DateTime.MinValue;
-        var first = true;
-        foreach (var t in targets)
-        {
-            ct.ThrowIfCancellationRequested();
-            if (!first)
-            {
-                var gap = ManifestCodePacing - (DateTime.UtcNow - lastCodeAt);
-                if (gap > TimeSpan.Zero)
-                    await Task.Delay(gap, ct);
-            }
-            first = false;
-            var code = await GetManifestRequestCodeAsync(t.manifestId, ct);
-            lastCodeAt = DateTime.UtcNow;
-            if (code is { } c && c != 0)
-                coded.Add((t.appId, t.depotId, t.manifestId, t.parentApp, t.key, c));
-        }
+        // Phase 1: request codes from Steam itself (logged-in session, else one
+        // anonymous session for the whole batch).
+        var codes = await GetSteamManifestCodesAsync(
+            targets.Select(t => (t.appId, t.depotId, t.manifestId, t.parentApp)).ToList(), ct);
+        var coded = targets
+            .Where(t => codes.TryGetValue((t.depotId, t.manifestId), out var c) && c != 0)
+            .Select(t => (t.appId, t.depotId, t.manifestId, t.parentApp, t.key, code: codes[(t.depotId, t.manifestId)]))
+            .ToList();
 
         int done = targets.Count - coded.Count;
         progress?.Report((double)done / targets.Count);
@@ -1172,45 +1226,19 @@ internal partial class SteamSession
 
     private static async Task<List<Server>> FetchServersAnonymouslyAsync(CancellationToken ct)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
-        var client = new SteamClient();
-        var mgr = new CallbackManager(client);
-        var user = client.GetHandler<SteamUser>();
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        mgr.Subscribe<SteamClient.ConnectedCallback>(_ =>
+        List<Server> found = [];
+        await RunAnonymousAsync(async client =>
         {
-            try { user?.LogOnAnonymous(); }
-            catch { tcs.TrySetResult(false); }
-        });
-        mgr.Subscribe<SteamUser.LoggedOnCallback>(cb => tcs.TrySetResult(cb.Result == EResult.OK));
-        mgr.Subscribe<SteamClient.DisconnectedCallback>(_ => tcs.TrySetResult(false));
-
-        var pump = Task.Run(async () =>
-        {
-            while (!linked.Token.IsCancellationRequested)
+            try
             {
-                try { mgr.RunWaitCallbacks(TimeSpan.FromMilliseconds(500)); } catch { }
-                try { await Task.Delay(100, linked.Token); } catch { break; }
+                var content = client.GetHandler<SteamContent>();
+                if (content == null) return;
+                var list = await content.GetServersForSteamPipe().WaitAsync(ct);
+                found = FilterCdnServers(list);
             }
-        }, linked.Token);
-
-        try
-        {
-            client.Connect();
-            if (!await tcs.Task.WaitAsync(linked.Token)) return [];
-            var content = client.GetHandler<SteamContent>();
-            if (content == null) return [];
-            var list = await content.GetServersForSteamPipe().WaitAsync(linked.Token);
-            return FilterCdnServers(list);
-        }
-        catch { return []; }
-        finally
-        {
-            try { linked.Cancel(); } catch { }
-            try { await pump; } catch { }
-            try { client.Disconnect(); } catch { }
-        }
+            catch { }
+        }, ct);
+        return found;
     }
 
     private async Task<bool> TryDownloadManifestAsync(

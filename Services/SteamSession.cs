@@ -1342,6 +1342,18 @@ internal partial class SteamSession
     }
 
     /// <summary>
+    /// Awaits a SteamKit job with a timeout. SteamKit AsyncJobs are awaitable
+    /// but not Tasks, so the job is wrapped to get a cancellable wait; if the
+    /// timeout wins the job keeps running in the background and its late
+    /// result is discarded. Callers fall back to cached/generic data.
+    /// </summary>
+    private static async Task<T> WithTimeout<T>(Func<Task<T>> job, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        return await job().WaitAsync(cts.Token);
+    }
+
+    /// <summary>
     /// PICS appinfo (depot IDs + names) for specific apps missing depot lists.
     /// </summary>
     private async Task EnsureAppDepotsForAsync(List<uint> appIds)
@@ -1354,19 +1366,29 @@ internal partial class SteamSession
 
         UiInvoke(() => OnStatusUpdate?.Invoke($"Resolving depots for {lacking.Count} app(s)..."));
 
-        var tokenResult = await _steamApps.PICSGetAccessTokens(lacking, Array.Empty<uint>());
+        var tokens = new Dictionary<uint, ulong>();
+        try
+        {
+            var tokenResult = await WithTimeout(
+                async () => await _steamApps.PICSGetAccessTokens(lacking, Array.Empty<uint>()),
+                TimeSpan.FromSeconds(30));
+            tokens = tokenResult.AppTokens;
+        }
+        catch { }
 
         foreach (var batch in lacking.Chunk(30))
         {
             var requests = batch.Select(id =>
             {
-                tokenResult.AppTokens.TryGetValue(id, out var token);
+                tokens.TryGetValue(id, out var token);
                 return new SteamApps.PICSRequest(id, token);
             }).ToList();
 
             try
             {
-                var result = await _steamApps.PICSGetProductInfo(requests, Array.Empty<SteamApps.PICSRequest>());
+                var result = await WithTimeout(
+                    async () => await _steamApps.PICSGetProductInfo(requests, Array.Empty<SteamApps.PICSRequest>()),
+                    TimeSpan.FromSeconds(30));
                 if (result.Results != null)
                 {
                     foreach (var cb in result.Results)
@@ -1423,19 +1445,29 @@ internal partial class SteamSession
 
         UiInvoke(() => OnStatusUpdate?.Invoke($"Resolving {dlcIds.Count} DLC name(s)..."));
 
-        var tokenResult = await _steamApps.PICSGetAccessTokens(dlcIds, Array.Empty<uint>());
+        var tokens = new Dictionary<uint, ulong>();
+        try
+        {
+            var tokenResult = await WithTimeout(
+                async () => await _steamApps.PICSGetAccessTokens(dlcIds, Array.Empty<uint>()),
+                TimeSpan.FromSeconds(30));
+            tokens = tokenResult.AppTokens;
+        }
+        catch { }
 
         foreach (var batch in dlcIds.Chunk(30))
         {
             var requests = batch.Select(id =>
             {
-                tokenResult.AppTokens.TryGetValue(id, out var token);
+                tokens.TryGetValue(id, out var token);
                 return new SteamApps.PICSRequest(id, token);
             }).ToList();
 
             try
             {
-                var result = await _steamApps.PICSGetProductInfo(requests, Array.Empty<SteamApps.PICSRequest>());
+                var result = await WithTimeout(
+                    async () => await _steamApps.PICSGetProductInfo(requests, Array.Empty<SteamApps.PICSRequest>()),
+                    TimeSpan.FromSeconds(30));
                 if (result.Results != null)
                 {
                     foreach (var cb in result.Results)

@@ -830,36 +830,46 @@ internal partial class SteamSession
     }
 
     /// <summary>
-    /// Fetches depot decryption keys in parallel, only storing keys
+    /// Fetches depot decryption keys for a list of depots, only storing keys
     /// when Steam actually returns EResult.OK with a non-empty key.
-    /// Returns (succeeded, failed) counts.
+    /// Steam exposes no batch endpoint for depot keys (single-depot requests
+    /// only — DepotDownloader loops the same way), so the list goes out
+    /// 8-at-a-time instead of one "give me the key" per depot round-trip
+    /// blocking the next. Returns (succeeded, failed) counts.
     /// </summary>
     private async Task<(int ok, int fail)> FetchDepotKeysParallelAsync(
         List<(uint appId, uint depotId)> missing)
     {
         if (_steamApps == null || missing.Count == 0) return (0, 0);
 
-        UiInvoke(() => _toast.Show("Depot keys", $"Fetching {missing.Count} key(s) from Steam..."));
+        // Resolve the final work list up front: skip keys we already hold and
+        // pin each depot's owning app now, so every spawned task does exactly
+        // one request and no gate slot is spent on no-ops.
+        List<(uint depotId, uint parentApp)> todo;
+        lock (_sync)
+        {
+            todo = missing
+                .Where(m => !_depotKeys.ContainsKey(m.depotId))
+                .Select(m => (m.depotId, ResolveParentApp(m.appId, m.depotId)))
+                .Distinct()
+                .ToList();
+        }
+        if (todo.Count == 0) return (0, 0);
+
+        UiInvoke(() => _toast.Show("Depot keys", $"Fetching {todo.Count} key(s) from Steam..."));
         int ok = 0, fail = 0;
-        int done = 0;
         using var gate = new SemaphoreSlim(8);
 
-        var tasks = missing.Select(async item =>
+        var tasks = todo.Select(async item =>
         {
             await gate.WaitAsync();
             try
             {
-                lock (_sync)
-                {
-                    if (_depotKeys.ContainsKey(item.depotId))
-                        return;
-                }
-                uint parentApp = ResolveParentApp(item.appId, item.depotId);
-                var result = await _steamApps.GetDepotDecryptionKey(item.depotId, parentApp);
+                var result = await _steamApps.GetDepotDecryptionKey(item.depotId, item.parentApp);
                 if (result.Result is EResult.Timeout or EResult.NoConnection or EResult.ServiceUnavailable)
                 {
                     await Task.Delay(500);
-                    result = await _steamApps.GetDepotDecryptionKey(item.depotId, parentApp);
+                    result = await _steamApps.GetDepotDecryptionKey(item.depotId, item.parentApp);
                 }
                 if (result.Result == EResult.OK && result.DepotKey is { Length: > 0 })
                 {
@@ -869,19 +879,18 @@ internal partial class SteamSession
                 }
                 else
                 {
-                    Log($"DepotKey denied: depot={item.depotId} app={parentApp} result={result.Result}");
+                    Log($"DepotKey denied: depot={item.depotId} app={item.parentApp} result={result.Result}");
                     Interlocked.Increment(ref fail);
                 }
             }
             catch (Exception ex)
             {
-                Log($"DepotKey error: depot={item.depotId} app={item.appId}: {ex.Message}");
+                Log($"DepotKey error: depot={item.depotId} app={item.parentApp}: {ex.Message}");
                 Interlocked.Increment(ref fail);
             }
             finally
             {
                 gate.Release();
-                Interlocked.Increment(ref done);
             }
         });
 

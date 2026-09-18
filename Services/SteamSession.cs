@@ -839,7 +839,7 @@ internal partial class SteamSession
     /// blocking the next. Returns (succeeded, failed, per-depot reasons).
     /// </summary>
     private async Task<(int ok, int fail, List<(uint depotId, string reason)> failures)> FetchDepotKeysParallelAsync(
-        List<(uint appId, uint depotId)> missing, int emptySkipped = 0, int unownedSkipped = 0)
+        List<(uint appId, uint depotId)> missing, int emptySkipped = 0, int unownedSkipped = 0, int noManifestSkipped = 0)
     {
         if (_steamApps == null || missing.Count == 0) return (0, 0, []);
 
@@ -909,8 +909,8 @@ internal partial class SteamSession
         });
 
         await Task.WhenAll(tasks);
-        if (ok > 0 || fail > 0 || emptySkipped > 0 || unownedSkipped > 0)
-            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} failed" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}{(unownedSkipped > 0 ? $", {unownedSkipped} unowned DLC skipped" : "")}.",
+        if (ok > 0 || fail > 0 || emptySkipped > 0 || unownedSkipped > 0 || noManifestSkipped > 0)
+            UiInvoke(() => _toast.Show("Depot keys", $"{ok} ready{(fail > 0 ? $", {fail} failed" : "")}{(emptySkipped > 0 ? $", {emptySkipped} empty (no key needed)" : "")}{(unownedSkipped > 0 ? $", {unownedSkipped} unowned DLC skipped" : "")}{(noManifestSkipped > 0 ? $", {noManifestSkipped} with no published manifest skipped" : "")}.",
                 error: ok == 0 && fail > 0));
         return (ok, fail, failures);
     }
@@ -963,9 +963,19 @@ internal partial class SteamSession
         await ClassifySharedDepotsAsync();
         RefreshGamesFromStore(games);
 
-        // Licensed apps, for the ownership gate below.
+        // Licensed apps, for the ownership gate below. Plus the set of
+        // depots PICS actually lists, to tell "no published manifest" apart
+        // from "manifest simply unknown".
         HashSet<uint> owned;
-        lock (_sync) owned = _ownedAppIds.ToHashSet();
+        HashSet<(uint appId, uint depotId)> picsKnown;
+        lock (_sync)
+        {
+            owned = _ownedAppIds.ToHashSet();
+            picsKnown = appIds
+                .Where(id => _appDepots.ContainsKey(id))
+                .SelectMany(id => _appDepots[id].Select(d => (id, d.DepotId)))
+                .ToHashSet();
+        }
 
         var missing = games
             .SelectMany(g => g.Depots.Where(d => string.IsNullOrEmpty(d.DepotKey))
@@ -984,13 +994,23 @@ internal partial class SteamSession
         var unowned = missing.Except(empty)
             .Where(m => m.parent != m.appId && m.dlc && !owned.Contains(m.parent))
             .ToList();
-        var wanted = missing.Except(empty).Except(unowned).Select(m => (m.appId, m.depotId)).ToList();
+        // Depots PICS lists with no manifest at all (e.g. Apex's 1311106):
+        // Steam has no content — and no key — for them, so its key server
+        // just stalls until timeout. Don't ask. (Depots PICS never listed,
+        // and the base-app pseudo entry, are still tried.)
+        var noManifest = missing.Except(empty)
+            .Where(m => string.IsNullOrEmpty(m.manifest) && m.depotId != m.appId
+                && picsKnown.Contains((m.appId, m.depotId)))
+            .ToList();
+        var wanted = missing.Except(empty).Except(unowned).Except(noManifest).Select(m => (m.appId, m.depotId)).ToList();
         if (empty.Count > 0)
             Log($"Skipping {empty.Count} empty depot(s) that need no key: {string.Join(",", empty.Select(m => m.depotId))}");
         if (unowned.Count > 0)
             Log($"Skipping {unowned.Count} unowned DLC depot(s): {string.Join(",", unowned.Select(m => $"{m.depotId}(dlc {m.parent})"))}");
+        if (noManifest.Count > 0)
+            Log($"Skipping {noManifest.Count} depot(s) with no published manifest: {string.Join(",", noManifest.Select(m => m.depotId))}");
 
-        var (ok, fail, failures) = await FetchDepotKeysParallelAsync(wanted, empty.Count, unowned.Count);
+        var (ok, fail, failures) = await FetchDepotKeysParallelAsync(wanted, empty.Count, unowned.Count, noManifest.Count);
 
         // PICS access tokens are unsigned 64-bit values. Ownership tickets from
         // GetAppOwnershipTicket are opaque byte blobs and are not addtoken values.

@@ -346,5 +346,36 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+
+        <!-- ManifestDeX share dialog (GamesViewModel state). Themed like the login/QR/Guard cards. -->
+        <Grid Grid.RowSpan="3" Panel.ZIndex="200"
+              Visibility="{Binding GamesVm.ShowShareDialog, Converter={StaticResource BoolToVis}}">
+            <Border Background="#80000000" />
+            <Border VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="360" MaxWidth="440" Padding="24,20"
+                    Background="{DynamicResource ApplicationBackgroundBrush}"
+                    CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="Upload to ManifestDeX" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
+                    <TextBlock FontSize="12" Foreground="#6b7280" Margin="0,0,0,4" TextWrapping="Wrap">
+                        <Run Text="{Binding GamesVm.ShareDialogFileName, Mode=OneWay}" FontWeight="SemiBold" Foreground="#9ca3af" />
+                        <Run Text=" (" />
+                        <Run Text="{Binding GamesVm.ShareDialogGameCount, Mode=OneWay}" />
+                        <Run Text=" game(s))" />
+                    </TextBlock>
+                    <TextBlock Text="Upload these luas to ManifestDeX? You will be redirected to manifestdex.com to review and confirm." FontSize="12" Foreground="#6b7280" Margin="0,0,0,12" TextWrapping="Wrap"
+                               Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}}" />
+                    <ProgressBar Minimum="0" Maximum="1" Value="{Binding GamesVm.ShareDialogProgress, Mode=OneWay}" Height="6" Margin="0,0,0,8"
+                                 Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{Binding GamesVm.ShareDialogStatus}" FontSize="11" Foreground="#9ca3af" TextWrapping="Wrap" Margin="0,0,0,12"
+                               Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <!-- Cancel is always visible: during upload it triggers cancellation via CloseShareDialogCommand -->
+                        <ui:Button Content="Cancel" Command="{Binding GamesVm.CloseShareDialogCommand}" Margin="0,0,8,0" />
+                        <ui:Button Content="Upload" Appearance="Primary" Command="{Binding GamesVm.ConfirmShareDialogCommand}"
+                                   Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </ui:FluentWindow>

@@ -1,5 +1,7 @@
 using System.IO;
+using System.IO.Compression;
 using System.Collections.ObjectModel;
+using System.Text;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -15,6 +17,7 @@ public partial class GamesViewModel : ObservableObject
     private readonly LuaExportService _export;
     private readonly CoverCache _covers;
     private readonly ToastService _toast;
+    private readonly ManifestDeXUploadService _uploader;
 
     public ObservableCollection<GameTileViewModel> Games { get; } = [];
 
@@ -25,6 +28,12 @@ public partial class GamesViewModel : ObservableObject
     [ObservableProperty] private string _selectAllText = "Select All";
     [ObservableProperty] private string _exportText = "Export .lua";
     [ObservableProperty] private bool _autoDownloadManifests = true;
+    [ObservableProperty] private bool _showShareDialog;
+    [ObservableProperty] private string _shareDialogFileName = "";
+    [ObservableProperty] private int _shareDialogGameCount;
+    [ObservableProperty] private bool _shareDialogIsUploading;
+    [ObservableProperty] private double _shareDialogProgress;
+    [ObservableProperty] private string _shareDialogStatus = "";
 
     partial void OnSearchTextChanged(string value)
     {
@@ -33,12 +42,13 @@ public partial class GamesViewModel : ObservableObject
 
     private List<GameTileViewModel> _allTiles = [];
 
-    public GamesViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast)
+    public GamesViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, ManifestDeXUploadService uploader)
     {
         _steam = steam;
         _export = export;
         _covers = covers;
         _toast = toast;
+        _uploader = uploader;
     }
 
     public void LoadGamesFromList(List<SteamGame> games)
@@ -225,6 +235,7 @@ public partial class GamesViewModel : ObservableObject
                 StatusMessage = $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}{KeyFailureSuffix(keyFailures)}";
                 _toast.Show("Export", $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}.");
                 await MaybeDownloadManifestsAsync(selected);
+                MaybeShareViaManifestDeXAsync(selected, dialog.FileName);
             }
             return;
         }
@@ -242,6 +253,7 @@ public partial class GamesViewModel : ObservableObject
             StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}{KeyFailureSuffix(keyFailures)}";
             _toast.Show("Export", $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}.");
             await MaybeDownloadManifestsAsync(selected);
+            MaybeShareViaManifestDeXAsync(selected, zipDialog.FileName);
         }
     }
 
@@ -273,6 +285,131 @@ public partial class GamesViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    private List<SteamGame> _pendingShareGames = [];
+    private string _pendingSharePath = "";
+    private CancellationTokenSource? _uploadCts;
+
+    /// <summary>Opens the themed share dialog after a successful export.
+    /// Never fails the export itself: the file is already on disk by now.</summary>
+    private void MaybeShareViaManifestDeXAsync(List<SteamGame> selected, string savedPath)
+    {
+        _pendingShareGames = selected.ToList();
+        _pendingSharePath = savedPath;
+        ShareDialogFileName = Path.GetFileName(savedPath);
+        ShareDialogGameCount = selected.Count;
+        ShareDialogIsUploading = false;
+        ShareDialogProgress = 0;
+        ShareDialogStatus = "";
+        ShowShareDialog = true;
+    }
+
+    [RelayCommand]
+    private void CloseShareDialog()
+    {
+        if (ShareDialogIsUploading)
+        {
+            // Cancel the in-flight upload and let ConfirmShareDialogAsync clean up.
+            _uploadCts?.Cancel();
+            return;
+        }
+        ShowShareDialog = false;
+    }
+
+    [RelayCommand]
+    private async Task ConfirmShareDialogAsync()
+    {
+        var selected = _pendingShareGames.ToList();
+        var savedPath = _pendingSharePath;
+        if (selected.Count == 0 || string.IsNullOrWhiteSpace(savedPath))
+        {
+            ShowShareDialog = false;
+            return;
+        }
+
+        _uploadCts = new CancellationTokenSource();
+        var ct = _uploadCts.Token;
+
+        ShareDialogIsUploading = true;
+        ShareDialogStatus = "Preparing upload...";
+        var zipPath = savedPath;
+        string? tempZip = null;
+        try
+        {
+            if (savedPath.EndsWith(".lua", StringComparison.OrdinalIgnoreCase) && selected.Count == 1)
+            {
+                tempZip = Path.Combine(Path.GetTempPath(), $"luasharex_share_{selected[0].AppId}_{Guid.NewGuid():N}.zip");
+                using var zip = ZipFile.Open(tempZip, ZipArchiveMode.Create);
+                var entry = zip.CreateEntry($"{selected[0].AppId}.lua", CompressionLevel.Optimal);
+                using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+                writer.Write(_export.Export(selected[0]));
+                zipPath = tempZip;
+            }
+
+            var info = new FileInfo(zipPath);
+            if (info.Length > 100L * 1024 * 1024)
+            {
+                ShareDialogStatus = "Exported zip is larger than 100 MB and cannot be staged.";
+                ShareDialogIsUploading = false;
+                return;
+            }
+
+            var prog = new Progress<double>(p =>
+            {
+                ShareDialogProgress = p;
+                ShareDialogStatus = $"Uploading to ManifestDeX... {p:P0}";
+            });
+            var (ok, stagedToken, _, error) = await _uploader.StageZipAsync(zipPath, prog, ct);
+            if (!ok || string.IsNullOrWhiteSpace(stagedToken))
+            {
+                ShareDialogStatus = ct.IsCancellationRequested
+                    ? "Upload cancelled."
+                    : $"Upload failed: {error ?? "unknown error"}";
+                ShareDialogIsUploading = false;
+                if (ct.IsCancellationRequested) ShowShareDialog = false;
+                return;
+            }
+
+            var url = ManifestDeXUploadService.BuildConfirmUrl(stagedToken);
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                ShareDialogStatus = $"Browser could not be opened ({ex.Message}). Confirm within 24 hours: {url}";
+                ShareDialogIsUploading = false;
+                return;
+            }
+
+            try { System.Windows.Clipboard.SetDataObject(url, copy: true); } catch { /* clipboard is best-effort */ }
+
+            ShowShareDialog = false;
+            StatusMessage = "Upload ready — confirm it on ManifestDeX within 24 hours.";
+            _toast.Show("ManifestDeX", $"Upload ready. Confirm link copied to clipboard.");
+        }
+        catch (OperationCanceledException)
+        {
+            ShareDialogStatus = "Upload cancelled.";
+            ShareDialogIsUploading = false;
+            ShowShareDialog = false;
+        }
+        catch (Exception ex)
+        {
+            ShareDialogStatus = $"Upload failed: {ex.Message}";
+            ShareDialogIsUploading = false;
+        }
+        finally
+        {
+            _uploadCts?.Dispose();
+            _uploadCts = null;
+            try
+            {
+                if (tempZip != null && File.Exists(tempZip)) File.Delete(tempZip);
+            }
+            catch { /* best effort temp cleanup */ }
         }
     }
 

@@ -67,13 +67,13 @@ public partial class MainViewModel : ObservableObject
         LocalCacheSummary = $"{_steam.DepotKeyCount} depot keys";
     }
 
-    public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates)
+    public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates, ManifestDeXUploadService uploader)
     {
         _steam = steam;
         _toast = toast;
         _updates = updates;
 
-        GamesVm = new GamesViewModel(steam, export, covers, toast);
+        GamesVm = new GamesViewModel(steam, export, covers, toast, uploader);
 
         _steam.OnSteamKitConnected += () =>
         {

@@ -17,6 +17,7 @@ public partial class App : Application
         services.AddSingleton<CoverCache>();
         services.AddSingleton<ToastService>();
         services.AddSingleton<UpdateService>();
+        services.AddSingleton<ManifestDeXUploadService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         services.AddTransient<GamesViewModel>();

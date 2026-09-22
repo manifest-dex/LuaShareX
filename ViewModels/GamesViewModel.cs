@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.IO.Compression;
 using System.Collections.ObjectModel;
 using System.Text;
@@ -27,7 +27,6 @@ public partial class GamesViewModel : ObservableObject
     [ObservableProperty] private int _selectedCount;
     [ObservableProperty] private string _selectAllText = "Select All";
     [ObservableProperty] private string _exportText = "Export .lua";
-    [ObservableProperty] private bool _autoDownloadManifests = true;
     [ObservableProperty] private bool _showShareDialog;
     [ObservableProperty] private string _shareDialogFileName = "";
     [ObservableProperty] private int _shareDialogGameCount;
@@ -41,6 +40,7 @@ public partial class GamesViewModel : ObservableObject
     }
 
     private List<GameTileViewModel> _allTiles = [];
+    private CancellationTokenSource? _coverCts;
 
     public GamesViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, ManifestDeXUploadService uploader)
     {
@@ -53,6 +53,10 @@ public partial class GamesViewModel : ObservableObject
 
     public void LoadGamesFromList(List<SteamGame> games)
     {
+        try { _coverCts?.Cancel(); } catch { }
+        _coverCts?.Dispose();
+        _coverCts = new CancellationTokenSource();
+        var ct = _coverCts.Token;
         _allTiles = games
             .OrderBy(g => g.Name)
             .Select(g =>
@@ -69,25 +73,28 @@ public partial class GamesViewModel : ObservableObject
             Games.Add(tile);
 
         UpdateSelectedCount();
-        _ = PrefetchCoversAsync(_allTiles);
+        _ = PrefetchCoversAsync(_allTiles, ct);
     }
 
-    private async Task PrefetchCoversAsync(List<GameTileViewModel> tiles)
+    private async Task PrefetchCoversAsync(List<GameTileViewModel> tiles, CancellationToken ct)
     {
         using var gate = new SemaphoreSlim(6);
         var tasks = tiles.Select(async tile =>
         {
-            await gate.WaitAsync();
+            await gate.WaitAsync(ct);
             try
             {
-                await tile.EnsureCoverAsync(_covers);
+                if (!ct.IsCancellationRequested)
+                    await tile.EnsureCoverAsync(_covers);
             }
+            catch (OperationCanceledException) { }
             finally
             {
                 gate.Release();
             }
         });
-        await Task.WhenAll(tasks);
+        try { await Task.WhenAll(tasks); }
+        catch (OperationCanceledException) { }
     }
 
     [RelayCommand]
@@ -142,9 +149,17 @@ public partial class GamesViewModel : ObservableObject
     private void CopyAppId(GameTileViewModel? tile)
     {
         if (tile == null) return;
-        Clipboard.SetText(tile.AppId.ToString());
-        StatusMessage = $"Copied App ID {tile.AppId}";
-        _toast.Show("Copy", $"Copied App ID {tile.AppId}.");
+        try
+        {
+            Clipboard.SetText(tile.AppId.ToString());
+            StatusMessage = $"Copied App ID {tile.AppId}";
+            _toast.Show("Copy", $"Copied App ID {tile.AppId}.");
+        }
+        catch
+        {
+            StatusMessage = "Clipboard is busy â€” try again";
+            _toast.Show("Copy", "Clipboard is busy â€” try again.", error: true);
+        }
     }
 
     [RelayCommand]
@@ -234,7 +249,6 @@ public partial class GamesViewModel : ObservableObject
                 _export.SaveToFile(content, dialog.FileName);
                 StatusMessage = $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}{KeyFailureSuffix(keyFailures)}";
                 _toast.Show("Export", $"Exported {selected[0].Name} to {Path.GetFileName(dialog.FileName)}.");
-                await MaybeDownloadManifestsAsync(selected);
                 MaybeShareViaManifestDeXAsync(selected, dialog.FileName);
             }
             return;
@@ -252,39 +266,10 @@ public partial class GamesViewModel : ObservableObject
             _export.SaveMultipleToZip(selected, zipDialog.FileName);
             StatusMessage = $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}{KeyFailureSuffix(keyFailures)}";
             _toast.Show("Export", $"Exported {selected.Count} game(s) to {Path.GetFileName(zipDialog.FileName)}.");
-            await MaybeDownloadManifestsAsync(selected);
             MaybeShareViaManifestDeXAsync(selected, zipDialog.FileName);
         }
     }
 
-    /// <summary>Auto-downloads .manifest files straight into Steam's depotcache.
-    /// Never fails the export itself: lua/zip is already on disk by now.</summary>
-    private async Task MaybeDownloadManifestsAsync(List<SteamGame> selected)
-    {
-        if (!AutoDownloadManifests) return;
-        if (!selected.SelectMany(g => g.Depots).Any(d => !string.IsNullOrEmpty(d.ManifestId))) return;
-
-        IsLoading = true;
-        try
-        {
-            StatusMessage = "Downloading manifests into depotcache...";
-            var prog = new Progress<double>(p => StatusMessage = $"Downloading manifests... {p:P0}");
-            var (ok, skipped, fail) = await _steam.DownloadManifestsAsync(selected, prog);
-            StatusMessage = $"Manifests: {ok} installed, {skipped} skipped{(fail > 0 ? $", {fail} failed" : "")}";
-            _toast.Show("Manifests",
-                $"Installed {ok} manifest(s) into Steam depotcache" +
-                (skipped > 0 ? $", {skipped} already present" : "") +
-                (fail > 0 ? $", {fail} failed." : "."),
-                error: ok == 0 && fail > 0);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Manifest download failed: {ex.Message}";
-            _toast.Show("Manifests", $"Manifest download failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            IsLoading = false;
         }
     }
 
@@ -387,7 +372,7 @@ public partial class GamesViewModel : ObservableObject
             try { System.Windows.Clipboard.SetDataObject(url, copy: true); } catch { /* clipboard is best-effort */ }
 
             ShowShareDialog = false;
-            StatusMessage = "Upload ready — confirm it on ManifestDeX within 24 hours.";
+            StatusMessage = "Upload ready â€” confirm it on ManifestDeX within 24 hours.";
             _toast.Show("ManifestDeX", $"Upload ready. Confirm link copied to clipboard.");
         }
         catch (OperationCanceledException)
@@ -449,7 +434,16 @@ public partial class GamesViewModel : ObservableObject
             ? _export.Export(selected[0])
             : _export.ExportMultiple(selected);
 
-        Clipboard.SetText(content);
+        try
+        {
+            Clipboard.SetText(content);
+        }
+        catch
+        {
+            StatusMessage = "Clipboard is busy â€” try again";
+            _toast.Show("Copy", "Clipboard is busy â€” try again.", error: true);
+            return;
+        }
         StatusMessage = $"Copied {selected.Count} game(s) to clipboard{KeyFailureSuffix(keyFailures)}";
         _toast.Show("Copy", $"Copied {selected.Count} game(s) to clipboard.");
     }
@@ -463,7 +457,7 @@ public partial class GamesViewModel : ObservableObject
         var all = _allTiles.Select(t => t.Game).ToList();
         if (all.Count == 0)
         {
-            StatusMessage = "Library is empty — nothing to test";
+            StatusMessage = "Library is empty â€” nothing to test";
             _toast.Show("Key test", "Library is empty.", error: true);
             return;
         }
@@ -484,13 +478,13 @@ public partial class GamesViewModel : ObservableObject
                 .Select(f =>
                 {
                     var owner = depotToGame[f.depotId].FirstOrDefault();
-                    return $"{owner?.Name ?? "Unknown"} ({owner?.AppId}) — Depot {f.depotId}: {f.reason}";
+                    return $"{owner?.Name ?? "Unknown"} ({owner?.AppId}) â€” Depot {f.depotId}: {f.reason}";
                 })
                 .ToList();
 
             var report = Path.Combine(Path.GetTempPath(), $"luasharex_keytest_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
             File.WriteAllLines(report,
-                new[] { $"LuaShareX key test — {DateTime.Now:G} — {all.Count} game(s), {failures.Count} failure(s)", "" }.Concat(lines));
+                new[] { $"LuaShareX key test â€” {DateTime.Now:G} â€” {all.Count} game(s), {failures.Count} failure(s)", "" }.Concat(lines));
 
             if (failures.Count == 0)
             {
@@ -499,8 +493,8 @@ public partial class GamesViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = $"Key test: {failures.Count} failure(s) — {string.Join("; ", lines.Take(3))}" +
-                    (failures.Count > 3 ? "; …" : "") + $" (full report: {report})";
+                StatusMessage = $"Key test: {failures.Count} failure(s) â€” {string.Join("; ", lines.Take(3))}" +
+                    (failures.Count > 3 ? "; â€¦" : "") + $" (full report: {report})";
                 _toast.Show("Key test", $"{failures.Count} failure(s). Full report: {Path.GetFileName(report)}.", error: true);
             }
         }

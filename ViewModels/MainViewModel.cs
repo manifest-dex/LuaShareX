@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -16,9 +16,7 @@ public partial class MainViewModel : ObservableObject
     private readonly UpdateService _updates;
     private UpdateInfo? _pendingUpdate;
 
-    [ObservableProperty] private object? _currentView;
     [ObservableProperty] private string _statusMessage = "Detecting Steam...";
-    [ObservableProperty] private bool _isLoaded;
     [ObservableProperty] private bool _useSteamKit = true;
     [ObservableProperty] private bool _showLoginPrompt;
     [ObservableProperty] private string _loginUsername = "";
@@ -37,7 +35,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private SteamLocalUser? _selectedLocalUser;
     [ObservableProperty] private bool _isLoggedIn;
     [ObservableProperty] private string _currentAccountLabel = "Not signed in";
-    [ObservableProperty] private string _localCacheSummary = "";
     [ObservableProperty] private string _updateButtonText = "Check for updates";
     [ObservableProperty] private bool _updateBusy;
     /// <summary>Library UI stays hidden until sign-in fully succeeds (or local games load).</summary>
@@ -61,13 +58,8 @@ public partial class MainViewModel : ObservableObject
             LoginUsername = value.AccountName;
     }
 
-    private void UpdateLocalCacheSummary()
-    {
-        // Local cache is account-free (installed apps only, all accounts).
-        LocalCacheSummary = $"{_steam.DepotKeyCount} depot keys";
-    }
-
     public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates, ManifestDeXUploadService uploader)
+    public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates)
     {
         _steam = steam;
         _toast = toast;
@@ -86,7 +78,7 @@ public partial class MainViewModel : ObservableObject
             LoginPassword = "";
             RefreshAccounts();
             StatusMessage = "Connected to Steam. Loading your library...";
-            toast.Show("Steam", "Signed in — loading your library...");
+            toast.Show("Steam", "Signed in â€” loading your library...");
         };
         _steam.OnSteamKitDisconnected += () =>
         {
@@ -143,7 +135,6 @@ public partial class MainViewModel : ObservableObject
             toast.Show("Library", $"Loaded {count} owned apps from Steam");
         };
 
-        CurrentView = GamesVm;
         _ = AutoStart();
     }
 
@@ -179,7 +170,6 @@ public partial class MainViewModel : ObservableObject
         _steam.DetectSteam();
 
         RefreshAccounts();
-        UpdateLocalCacheSummary();
         LocalUsers = _steam.LocalUsers;
         SelectedLocalUser = _steam.ActiveLocalUser;
 
@@ -326,7 +316,7 @@ public partial class MainViewModel : ObservableObject
         ShowGuardPrompt = false;
         StatusMessage = "Connecting to Steam via SteamKit2...";
         _toast.Show("Steam", "Connecting via SteamKit2...");
-        // NOTE: no completion toast here — StartSteamKitAuth only initiates
+        // NOTE: no completion toast here â€” StartSteamKitAuth only initiates
         // Connect(); the outcome arrives later via OnSteamKitConnected /
         // OnLoginNeeded / OnError, which already toast + update status.
         await _steam.StartSteamKitAuth();
@@ -362,7 +352,7 @@ public partial class MainViewModel : ObservableObject
         CurrentAccountLabel = "Local mode";
         SelectedLocalUser ??= _steam.ActiveLocalUser;
         LoadInstalledGames();
-        StatusMessage = $"Local mode — {GamesVm.Games.Count} installed games";
+        StatusMessage = $"Local mode â€” {GamesVm.Games.Count} installed games";
     }
 
     [RelayCommand]
@@ -377,7 +367,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         UpdateBusy = true;
-        UpdateButtonText = "Checking…";
+        UpdateButtonText = "Checkingâ€¦";
         try
         {
             var info = await _updates.CheckForUpdatesAsync();
@@ -391,7 +381,7 @@ public partial class MainViewModel : ObservableObject
                 _pendingUpdate = info;
                 UpdateButtonText = $"Install {info.Version}";
                 StatusMessage = $"Update available: v{info.Version}";
-                _toast.Show("Updates", $"v{info.Version} available — click Install to update.");
+                _toast.Show("Updates", $"v{info.Version} available â€” click Install to update.");
             }
         }
         catch (Exception ex)
@@ -414,7 +404,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _pendingUpdate = info;
                 UpdateButtonText = $"Install {info.Version}";
-                _toast.Show("Updates", $"v{info.Version} available — click Install to update.");
+                _toast.Show("Updates", $"v{info.Version} available â€” click Install to update.");
             }
         }
         catch
@@ -429,10 +419,10 @@ public partial class MainViewModel : ObservableObject
         try
         {
             var progress = new Progress<double>(p =>
-                StatusMessage = $"Downloading v{info.Version}… {p:P0}");
-            StatusMessage = $"Downloading v{info.Version}…";
+                StatusMessage = $"Downloading v{info.Version}â€¦ {p:P0}");
+            StatusMessage = $"Downloading v{info.Version}â€¦";
             var zip = await _updates.DownloadAsync(info, progress);
-            StatusMessage = "Restarting to install…";
+            StatusMessage = "Restarting to installâ€¦";
             UpdateService.InstallAndRestart(zip);
             System.Windows.Application.Current.Shutdown();
         }

@@ -27,12 +27,19 @@ public partial class ToastService : ObservableObject
 
     public ObservableCollection<ToastNotification> Toasts { get; } = [];
 
-    /// <summary>Show a toast. Never blocks, never throws.</summary>
+    /// <summary>Show a toast. Never blocks, never throws. An identical toast
+    /// that's already visible is refreshed (re-posted with a fresh timer)
+    /// instead of stacking a duplicate.</summary>
     public void Show(string title, string message, bool error = false)
     {
         var toast = new ToastNotification { Title = title, Message = message, IsError = error };
         RunOnUi(() =>
         {
+            for (int i = Toasts.Count - 1; i >= 0; i--)
+            {
+                if (Toasts[i].Title == title && Toasts[i].Message == message && Toasts[i].IsError == error)
+                    Toasts.RemoveAt(i);
+            }
             Toasts.Add(toast);
             while (Toasts.Count > MaxVisible)
                 Toasts.RemoveAt(0);

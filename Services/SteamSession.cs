@@ -1,11 +1,10 @@
-using System.IO;
+﻿using System.IO;
 using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using SteamKit2;
 using SteamKit2.Authentication;
-using SteamKit2.CDN;
 using SteamKit2.Internal;
 using LuaShareX.Models;
 
@@ -97,7 +96,7 @@ internal partial class SteamSession
         try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "luasharex.log"), $"[{DateTime.Now:HH:mm:ss}] {msg}\n"); } catch { }
     }
 
-    // ── Local mode ─────────────────────────────────────────────────
+    // â”€â”€ Local mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public void DetectSteam()
     {
@@ -307,7 +306,7 @@ internal partial class SteamSession
 
     /// <summary>
     /// The config.vdf Accounts section remembers every account that ever signed
-    /// in on this machine (account name → SteamID), including ones already
+    /// in on this machine (account name â†’ SteamID), including ones already
     /// pruned from loginusers.vdf. Merge those in as lightweight entries.
     /// </summary>
     private void MergeAccountsSection()
@@ -516,7 +515,7 @@ internal partial class SteamSession
         return installed.OrderBy(g => g.Name).ToList();
     }
 
-    // ── Token store (JSON, backward compatible) ────────────────────
+    // â”€â”€ Token store (JSON, backward compatible) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private void LoadTokens(string? accountName)
     {
@@ -562,7 +561,7 @@ internal partial class SteamSession
         }
     }
 
-    // ── SteamKit2 connection ───────────────────────────────────────
+    // â”€â”€ SteamKit2 connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task EnsureConnectedAsync(LoginMode mode, string? username, string? password)
     {
@@ -834,7 +833,7 @@ internal partial class SteamSession
     /// Fetches depot decryption keys for a list of depots, only storing keys
     /// when Steam actually returns EResult.OK with a non-empty key.
     /// Steam exposes no batch endpoint for depot keys (single-depot requests
-    /// only — DepotDownloader loops the same way), so the list goes out
+    /// only â€” DepotDownloader loops the same way), so the list goes out
     /// 8-at-a-time instead of one "give me the key" per depot round-trip
     /// blocking the next. Returns (succeeded, failed, per-depot reasons).
     /// </summary>
@@ -942,7 +941,7 @@ internal partial class SteamSession
 
     /// <summary>
     /// Export-time fetch: ensures the given games have fresh depot lists
-    /// (names, parents, redist flags), depot keys and app tokens — but only
+    /// (names, parents, redist flags), depot keys and app tokens â€” but only
     /// for these games, nothing bulk. Returns (keysOk, keysFail, tokensOk,
     /// per-depot key failure reasons). Mutates the passed game objects in place.
     /// </summary>
@@ -986,7 +985,7 @@ internal partial class SteamSession
             .Distinct()
             .ToList();
 
-        // Empty depots (known manifest, zero bytes — e.g. Yakuza 0's 638974)
+        // Empty depots (known manifest, zero bytes â€” e.g. Yakuza 0's 638974)
         // have no decryption key; Steam denies the request, so don't ask.
         var empty = missing.Where(m => !string.IsNullOrEmpty(m.manifest) && m.size == 0).ToList();
         // DLC-gated depots whose DLC isn't licensed (e.g. Back 4 Blood's 1142380):
@@ -995,7 +994,7 @@ internal partial class SteamSession
             .Where(m => m.parent != m.appId && m.dlc && !owned.Contains(m.parent))
             .ToList();
         // Depots PICS lists with no manifest at all (e.g. Apex's 1311106):
-        // Steam has no content — and no key — for them, so its key server
+        // Steam has no content â€” and no key â€” for them, so its key server
         // just stalls until timeout. Don't ask. (Depots PICS never listed,
         // and the base-app pseudo entry, are still tried.)
         var noManifest = missing.Except(empty)
@@ -1107,304 +1106,6 @@ internal partial class SteamSession
         }
     }
 
-    // ── Manifest downloads (Steam request codes + Steam CDN) ───
-
-    private List<Server>? _cdnServers;
-
-    /// <summary>Steam's depotcache folder — downloaded manifests install here.</summary>
-    private string? DepotCacheDir =>
-        _steamInstallPath is { } p ? Path.Combine(p, "depotcache") : null;
-
-    /// <summary>
-    /// Manifest request codes straight from Steam (no third party).
-    /// Logged-in sessions get codes for owned depots; local mode tries a
-    /// single anonymous session (works for public depots).
-    /// </summary>
-    private async Task<Dictionary<(uint depotId, ulong manifestId), ulong>> GetSteamManifestCodesAsync(
-        List<(uint appId, uint depotId, ulong manifestId, uint parentApp)> targets, CancellationToken ct)
-    {
-        var codes = new Dictionary<(uint, ulong), ulong>();
-
-        if (_steamClient != null && IsSteamKitConnected)
-        {
-            var content = _steamClient.GetHandler<SteamContent>();
-            if (content != null)
-            {
-                foreach (var t in targets)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var code = await TryGetSteamCodeAsync(content, t.depotId,
-                        t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId);
-                    if (code != 0) codes[(t.depotId, t.manifestId)] = code;
-                }
-            }
-            return codes;
-        }
-
-        await RunAnonymousAsync(async client =>
-        {
-            var content = client.GetHandler<SteamContent>();
-            if (content == null) return;
-            foreach (var t in targets)
-            {
-                ct.ThrowIfCancellationRequested();
-                var code = await TryGetSteamCodeAsync(content, t.depotId,
-                    t.parentApp != 0 ? t.parentApp : t.appId, t.manifestId);
-                if (code != 0) codes[(t.depotId, t.manifestId)] = code;
-            }
-        }, ct);
-        return codes;
-    }
-
-    /// <summary>One Steam request-code call with a timeout. 0 when Steam never answers.</summary>
-    private static async Task<ulong> TryGetSteamCodeAsync(
-        SteamContent content, uint depotId, uint appId, ulong manifestId)
-    {
-        try
-        {
-            return await WithTimeout(
-                async () => await content.GetManifestRequestCode(depotId, appId, manifestId, null, null),
-                TimeSpan.FromSeconds(30));
-        }
-        catch { return 0; }
-    }
-
-    /// <summary>Runs work on a throwaway anonymous Steam session (~10-30s).
-    /// Used in local mode for CDN server discovery and manifest request codes.</summary>
-    private static async Task RunAnonymousAsync(Func<SteamClient, Task> work, CancellationToken ct)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
-        var client = new SteamClient();
-        var mgr = new CallbackManager(client);
-        var user = client.GetHandler<SteamUser>();
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        mgr.Subscribe<SteamClient.ConnectedCallback>(_ =>
-        {
-            try { user?.LogOnAnonymous(); }
-            catch { tcs.TrySetResult(false); }
-        });
-        mgr.Subscribe<SteamUser.LoggedOnCallback>(cb => tcs.TrySetResult(cb.Result == EResult.OK));
-        mgr.Subscribe<SteamClient.DisconnectedCallback>(_ => tcs.TrySetResult(false));
-
-        var pump = Task.Run(async () =>
-        {
-            while (!linked.Token.IsCancellationRequested)
-            {
-                try { mgr.RunWaitCallbacks(TimeSpan.FromMilliseconds(500)); } catch { }
-                try { await Task.Delay(100, linked.Token); } catch { break; }
-            }
-        }, linked.Token);
-
-        try
-        {
-            client.Connect();
-            if (!await tcs.Task.WaitAsync(linked.Token)) return;
-            await work(client);
-        }
-        catch { }
-        finally
-        {
-            try { linked.Cancel(); } catch { }
-            try { await pump; } catch { }
-            try { client.Disconnect(); } catch { }
-        }
-    }
-
-    /// <summary>
-    /// Downloads .manifest files for every depot of the given games that has a
-    /// known manifest id. Files install as {depotid}_{gid}.manifest straight
-    /// into Steam's depotcache; existing files are skipped.
-    /// Returns (downloaded, skipped, failed).
-    /// </summary>
-    public async Task<(int ok, int skipped, int fail)> DownloadManifestsAsync(
-        List<SteamGame> games, IProgress<double>? progress, CancellationToken ct = default)
-    {
-        var folder = DepotCacheDir;
-        if (string.IsNullOrEmpty(folder))
-            throw new InvalidOperationException("Steam folder not found, so there is no depotcache to install into.");
-
-        var targets = games
-            .SelectMany(g => g.Depots.Select(d => (appId: g.AppId, depot: d)))
-            .Where(t => ulong.TryParse(t.depot.ManifestId, out var gid) && gid != 0)
-            .Select(t => (t.appId, depotId: t.depot.DepotId, manifestId: ulong.Parse(t.depot.ManifestId),
-                           parentApp: t.depot.ParentAppId, key: t.depot.DepotKey))
-            .Distinct()
-            .ToList();
-        if (targets.Count == 0) return (0, 0, 0);
-        Directory.CreateDirectory(folder);
-
-        UiInvoke(() => OnStatusUpdate?.Invoke($"Requesting {targets.Count} manifest code(s) from Steam..."));
-
-        // Phase 1: request codes from Steam itself (logged-in session, else one
-        // anonymous session for the whole batch).
-        var codes = await GetSteamManifestCodesAsync(
-            targets.Select(t => (t.appId, t.depotId, t.manifestId, t.parentApp)).ToList(), ct);
-        var coded = targets
-            .Where(t => codes.TryGetValue((t.depotId, t.manifestId), out var c) && c != 0)
-            .Select(t => (t.appId, t.depotId, t.manifestId, t.parentApp, t.key, code: codes[(t.depotId, t.manifestId)]))
-            .ToList();
-
-        int done = targets.Count - coded.Count;
-        progress?.Report((double)done / targets.Count);
-
-        // Phase 2: bytes, a few at a time.
-        var servers = await GetCdnServersAsync(ct);
-        if (servers.Count == 0)
-            return (0, 0, targets.Count);
-
-        int ok = 0, skipped = 0, fail = 0;
-        using var gate = new SemaphoreSlim(3);
-        var tasks = coded.Select(async item =>
-        {
-            await gate.WaitAsync(ct);
-            try
-            {
-                var path = Path.Combine(folder, $"{item.depotId}_{item.manifestId}.manifest");
-                if (File.Exists(path)) { Interlocked.Increment(ref skipped); return; }
-                if (await TryDownloadManifestAsync(item, folder, servers, ct))
-                    Interlocked.Increment(ref ok);
-                else
-                    Interlocked.Increment(ref fail);
-            }
-            catch { Interlocked.Increment(ref fail); }
-            finally
-            {
-                gate.Release();
-                progress?.Report((double)Interlocked.Increment(ref done) / targets.Count);
-            }
-        });
-        await Task.WhenAll(tasks);
-        Log($"Manifests: {ok} ok, {skipped} skipped, {fail} failed");
-        return (ok, skipped, fail);
-    }
-
-    private async Task<List<Server>> GetCdnServersAsync(CancellationToken ct)
-    {
-        if (_cdnServers is { Count: > 0 }) return _cdnServers;
-
-        if (_steamClient != null && IsSteamKitConnected)
-        {
-            try
-            {
-                var content = _steamClient.GetHandler<SteamContent>();
-                if (content != null)
-                {
-                    var list = await WithTimeout(
-                        () => content.GetServersForSteamPipe(), TimeSpan.FromSeconds(30));
-                    var filtered = FilterCdnServers(list);
-                    if (filtered.Count > 0) return _cdnServers = filtered;
-                }
-            }
-            catch { }
-        }
-
-        // Local mode: brief anonymous session just for server discovery.
-        try
-        {
-            var anon = await FetchServersAnonymouslyAsync(ct);
-            if (anon.Count > 0) return _cdnServers = anon;
-        }
-        catch { }
-        return [];
-    }
-
-    private static List<Server> FilterCdnServers(IEnumerable<Server> servers) =>
-        servers.Where(s => !s.SteamChinaOnly && !string.IsNullOrEmpty(s.Host)).OrderBy(s => s.WeightedLoad).ToList();
-
-    private static async Task<List<Server>> FetchServersAnonymouslyAsync(CancellationToken ct)
-    {
-        List<Server> found = [];
-        await RunAnonymousAsync(async client =>
-        {
-            var content = client.GetHandler<SteamContent>();
-            if (content == null) return;
-            try
-            {
-                var list = await WithTimeout(
-                    () => content.GetServersForSteamPipe(), TimeSpan.FromSeconds(30));
-                found = FilterCdnServers(list);
-            }
-            catch { }
-        }, ct);
-        return found;
-    }
-
-    private async Task<bool> TryDownloadManifestAsync(
-        (uint appId, uint depotId, ulong manifestId, uint parentApp, string key, ulong code) item,
-        string folder, List<Server> servers, CancellationToken ct)
-    {
-        byte[]? depotKey = null;
-        try
-        {
-            if (!string.IsNullOrEmpty(item.key) && item.key.Length == 64)
-                depotKey = Convert.FromHexString(item.key);
-        }
-        catch { depotKey = null; }
-
-        var path = Path.Combine(folder, $"{item.depotId}_{item.manifestId}.manifest");
-        var tried = servers.Take(3).ToList();
-
-        foreach (var server in tried)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                using var cdn = new Client(_steamClient ?? new SteamClient());
-                var manifest = await cdn.DownloadManifestAsync(
-                    item.depotId, item.manifestId, item.code, server, depotKey);
-                if (!await SaveManifestAsync(manifest, path, depotKey, ct))
-                    continue;
-                return true;
-            }
-            catch { /* next server */ }
-        }
-
-        // Authenticated retry when signed in (private depots may 401/403).
-        if (IsSteamKitConnected && _steamClient != null && tried.Count > 0)
-        {
-            try
-            {
-                var content = _steamClient.GetHandler<SteamContent>();
-                if (content == null) return false;
-                var token = await WithTimeout(
-                    async () => await content.GetCDNAuthToken(
-                        item.depotId, item.parentApp != 0 ? item.parentApp : item.appId, tried[0].Host!),
-                    TimeSpan.FromSeconds(30));
-                if (!string.IsNullOrEmpty(token?.Token))
-                {
-                    using var cdn = new Client(_steamClient);
-                    var manifest = await cdn.DownloadManifestAsync(
-                        item.depotId, item.manifestId, item.code, tried[0], depotKey, null, token.Token);
-                    if (await SaveManifestAsync(manifest, path, depotKey, ct))
-                        return true;
-                }
-            }
-            catch { }
-        }
-        return false;
-    }
-
-    private static async Task<bool> SaveManifestAsync(
-        DepotManifest manifest, string path, byte[]? depotKey, CancellationToken ct)
-    {
-        try
-        {
-            if (depotKey != null)
-            {
-                try { manifest.DecryptFilenames(depotKey); } catch { }
-            }
-            using var ms = new MemoryStream();
-            manifest.Serialize(ms);
-            var bytes = ms.ToArray();
-            if (bytes.Length == 0) return false;
-            // Sanity: must re-parse as a manifest, otherwise don't write junk.
-            DepotManifest.Deserialize(new MemoryStream(bytes, writable: false));
-            await File.WriteAllBytesAsync(path, bytes, ct);
-            return true;
-        }
-        catch { return false; }
-    }
 
     /// <summary>
     /// Awaits a SteamKit job with a timeout. SteamKit AsyncJobs are awaitable
@@ -1622,7 +1323,7 @@ internal partial class SteamSession
         }
     }
 
-    // ── Direct library fetch: WebAPI first, PICS merge ─────────────
+    // â”€â”€ Direct library fetch: WebAPI first, PICS merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task FetchLibraryDirectAsync()
     {
@@ -1768,7 +1469,7 @@ internal partial class SteamSession
         }
     }
 
-    // ── License list → merge PICS data (fallback/augment) ──────────
+    // â”€â”€ License list â†’ merge PICS data (fallback/augment) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private void OnLicenseList(SteamApps.LicenseListCallback callback)
     {
@@ -2000,7 +1701,7 @@ internal partial class SteamSession
                 else if (!_appNames.ContainsKey(appId))
                     _appNames[appId] = $"App {appId}";
                 // When the WebAPI already gave us the authoritative owned list,
-                // PICS only enriches (names/depots) — it must not add expired
+                // PICS only enriches (names/depots) â€” it must not add expired
                 // free-weekend etc. apps as new owned games.
                 if (allowNewIds || _ownedAppIds.Contains(appId))
                 {
@@ -2152,7 +1853,7 @@ internal partial class SteamSession
         Log($"Classified redistributable depots from {redistParents.Count} parent apps");
     }
 
-    // ── KV helpers ──────────────────────────────────────────────
+    // â”€â”€ KV helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static void ExtractAppIdsFromKV(KeyValue keyValues, HashSet<uint> allAppIds)
     {
@@ -2172,7 +1873,7 @@ internal partial class SteamSession
         }
     }
 
-    // ── Parsing helpers ───────────────────────────────────────────
+    // â”€â”€ Parsing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private List<string> ParseLibraryFolders(string path)
     {
@@ -2273,7 +1974,7 @@ internal partial class SteamSession
         return map;
     }
 
-    // ── Regex ─────────────────────────────────────────────────────
+    // â”€â”€ Regex â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [GeneratedRegex(@"""(\d{17})""\s*\r?\n\s*\{\s*\r?\n((?:\s*""[^\r\n""]+""\s+""[^\r\n""]*""\s*\r?\n)+)", RegexOptions.Compiled)]
     private static partial Regex LocalUserBlockRegex();

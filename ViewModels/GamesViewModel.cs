@@ -157,8 +157,8 @@ public partial class GamesViewModel : ObservableObject
         }
         catch
         {
-            StatusMessage = "Clipboard is busy â€” try again";
-            _toast.Show("Copy", "Clipboard is busy â€” try again.", error: true);
+            StatusMessage = "Clipboard is busy — try again";
+            _toast.Show("Copy", "Clipboard is busy — try again.", error: true);
         }
     }
 
@@ -369,7 +369,7 @@ public partial class GamesViewModel : ObservableObject
             try { System.Windows.Clipboard.SetDataObject(url, copy: true); } catch { /* clipboard is best-effort */ }
 
             ShowShareDialog = false;
-            StatusMessage = "Upload ready â€” confirm it on ManifestDeX within 24 hours.";
+            StatusMessage = "Upload ready — confirm it on ManifestDeX within 24 hours.";
             _toast.Show("ManifestDeX", $"Upload ready. Confirm link copied to clipboard.");
         }
         catch (OperationCanceledException)
@@ -437,8 +437,8 @@ public partial class GamesViewModel : ObservableObject
         }
         catch
         {
-            StatusMessage = "Clipboard is busy â€” try again";
-            _toast.Show("Copy", "Clipboard is busy â€” try again.", error: true);
+            StatusMessage = "Clipboard is busy — try again";
+            _toast.Show("Copy", "Clipboard is busy — try again.", error: true);
             return;
         }
         StatusMessage = $"Copied {selected.Count} game(s) to clipboard{KeyFailureSuffix(keyFailures)}";
@@ -454,7 +454,7 @@ public partial class GamesViewModel : ObservableObject
         var all = _allTiles.Select(t => t.Game).ToList();
         if (all.Count == 0)
         {
-            StatusMessage = "Library is empty â€” nothing to test";
+            StatusMessage = "Library is empty — nothing to test";
             _toast.Show("Key test", "Library is empty.", error: true);
             return;
         }
@@ -475,13 +475,13 @@ public partial class GamesViewModel : ObservableObject
                 .Select(f =>
                 {
                     var owner = depotToGame[f.depotId].FirstOrDefault();
-                    return $"{owner?.Name ?? "Unknown"} ({owner?.AppId}) â€” Depot {f.depotId}: {f.reason}";
+                    return $"{owner?.Name ?? "Unknown"} ({owner?.AppId}) — Depot {f.depotId}: {f.reason}";
                 })
                 .ToList();
 
             var report = Path.Combine(Path.GetTempPath(), $"luasharex_keytest_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
             File.WriteAllLines(report,
-                new[] { $"LuaShareX key test â€” {DateTime.Now:G} â€” {all.Count} game(s), {failures.Count} failure(s)", "" }.Concat(lines));
+                new[] { $"LuaShareX key test — {DateTime.Now:G} — {all.Count} game(s), {failures.Count} failure(s)", "" }.Concat(lines));
 
             if (failures.Count == 0)
             {
@@ -490,8 +490,8 @@ public partial class GamesViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = $"Key test: {failures.Count} failure(s) â€” {string.Join("; ", lines.Take(3))}" +
-                    (failures.Count > 3 ? "; â€¦" : "") + $" (full report: {report})";
+                StatusMessage = $"Key test: {failures.Count} failure(s) — {string.Join("; ", lines.Take(3))}" +
+                    (failures.Count > 3 ? "; …" : "") + $" (full report: {report})";
                 _toast.Show("Key test", $"{failures.Count} failure(s). Full report: {Path.GetFileName(report)}.", error: true);
             }
         }

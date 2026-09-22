@@ -96,7 +96,7 @@ internal partial class SteamSession
         try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "luasharex.log"), $"[{DateTime.Now:HH:mm:ss}] {msg}\n"); } catch { }
     }
 
-    // â”€â”€ Local mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Local mode ─────────────────────────────────────────────────
 
     public void DetectSteam()
     {
@@ -306,7 +306,7 @@ internal partial class SteamSession
 
     /// <summary>
     /// The config.vdf Accounts section remembers every account that ever signed
-    /// in on this machine (account name â†’ SteamID), including ones already
+    /// in on this machine (account name → SteamID), including ones already
     /// pruned from loginusers.vdf. Merge those in as lightweight entries.
     /// </summary>
     private void MergeAccountsSection()
@@ -515,7 +515,7 @@ internal partial class SteamSession
         return installed.OrderBy(g => g.Name).ToList();
     }
 
-    // â”€â”€ Token store (JSON, backward compatible) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Token store (JSON, backward compatible) ────────────────────
 
     private void LoadTokens(string? accountName)
     {
@@ -561,7 +561,7 @@ internal partial class SteamSession
         }
     }
 
-    // â”€â”€ SteamKit2 connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── SteamKit2 connection ───────────────────────────────────────
 
     private async Task EnsureConnectedAsync(LoginMode mode, string? username, string? password)
     {
@@ -833,7 +833,7 @@ internal partial class SteamSession
     /// Fetches depot decryption keys for a list of depots, only storing keys
     /// when Steam actually returns EResult.OK with a non-empty key.
     /// Steam exposes no batch endpoint for depot keys (single-depot requests
-    /// only â€” DepotDownloader loops the same way), so the list goes out
+    /// only — DepotDownloader loops the same way), so the list goes out
     /// 8-at-a-time instead of one "give me the key" per depot round-trip
     /// blocking the next. Returns (succeeded, failed, per-depot reasons).
     /// </summary>
@@ -941,7 +941,7 @@ internal partial class SteamSession
 
     /// <summary>
     /// Export-time fetch: ensures the given games have fresh depot lists
-    /// (names, parents, redist flags), depot keys and app tokens â€” but only
+    /// (names, parents, redist flags), depot keys and app tokens — but only
     /// for these games, nothing bulk. Returns (keysOk, keysFail, tokensOk,
     /// per-depot key failure reasons). Mutates the passed game objects in place.
     /// </summary>
@@ -985,7 +985,7 @@ internal partial class SteamSession
             .Distinct()
             .ToList();
 
-        // Empty depots (known manifest, zero bytes â€” e.g. Yakuza 0's 638974)
+        // Empty depots (known manifest, zero bytes — e.g. Yakuza 0's 638974)
         // have no decryption key; Steam denies the request, so don't ask.
         var empty = missing.Where(m => !string.IsNullOrEmpty(m.manifest) && m.size == 0).ToList();
         // DLC-gated depots whose DLC isn't licensed (e.g. Back 4 Blood's 1142380):
@@ -994,7 +994,7 @@ internal partial class SteamSession
             .Where(m => m.parent != m.appId && m.dlc && !owned.Contains(m.parent))
             .ToList();
         // Depots PICS lists with no manifest at all (e.g. Apex's 1311106):
-        // Steam has no content â€” and no key â€” for them, so its key server
+        // Steam has no content — and no key — for them, so its key server
         // just stalls until timeout. Don't ask. (Depots PICS never listed,
         // and the base-app pseudo entry, are still tried.)
         var noManifest = missing.Except(empty)
@@ -1323,7 +1323,7 @@ internal partial class SteamSession
         }
     }
 
-    // â”€â”€ Direct library fetch: WebAPI first, PICS merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Direct library fetch: WebAPI first, PICS merge ─────────────
 
     private async Task FetchLibraryDirectAsync()
     {
@@ -1469,7 +1469,7 @@ internal partial class SteamSession
         }
     }
 
-    // â”€â”€ License list â†’ merge PICS data (fallback/augment) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── License list → merge PICS data (fallback/augment) ──────────
 
     private void OnLicenseList(SteamApps.LicenseListCallback callback)
     {
@@ -1701,7 +1701,7 @@ internal partial class SteamSession
                 else if (!_appNames.ContainsKey(appId))
                     _appNames[appId] = $"App {appId}";
                 // When the WebAPI already gave us the authoritative owned list,
-                // PICS only enriches (names/depots) â€” it must not add expired
+                // PICS only enriches (names/depots) — it must not add expired
                 // free-weekend etc. apps as new owned games.
                 if (allowNewIds || _ownedAppIds.Contains(appId))
                 {
@@ -1853,7 +1853,7 @@ internal partial class SteamSession
         Log($"Classified redistributable depots from {redistParents.Count} parent apps");
     }
 
-    // â”€â”€ KV helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── KV helpers ──────────────────────────────────────────────
 
     private static void ExtractAppIdsFromKV(KeyValue keyValues, HashSet<uint> allAppIds)
     {
@@ -1873,7 +1873,7 @@ internal partial class SteamSession
         }
     }
 
-    // â”€â”€ Parsing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Parsing helpers ───────────────────────────────────────────
 
     private List<string> ParseLibraryFolders(string path)
     {
@@ -1974,7 +1974,7 @@ internal partial class SteamSession
         return map;
     }
 
-    // â”€â”€ Regex â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Regex ─────────────────────────────────────────────────────
 
     [GeneratedRegex(@"""(\d{17})""\s*\r?\n\s*\{\s*\r?\n((?:\s*""[^\r\n""]+""\s+""[^\r\n""]*""\s*\r?\n)+)", RegexOptions.Compiled)]
     private static partial Regex LocalUserBlockRegex();

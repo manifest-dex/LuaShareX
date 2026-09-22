@@ -77,7 +77,7 @@ public partial class MainViewModel : ObservableObject
             LoginPassword = "";
             RefreshAccounts();
             StatusMessage = "Connected to Steam. Loading your library...";
-            toast.Show("Steam", "Signed in â€” loading your library...");
+            toast.Show("Steam", "Signed in — loading your library...");
         };
         _steam.OnSteamKitDisconnected += () =>
         {
@@ -315,7 +315,7 @@ public partial class MainViewModel : ObservableObject
         ShowGuardPrompt = false;
         StatusMessage = "Connecting to Steam via SteamKit2...";
         _toast.Show("Steam", "Connecting via SteamKit2...");
-        // NOTE: no completion toast here â€” StartSteamKitAuth only initiates
+        // NOTE: no completion toast here — StartSteamKitAuth only initiates
         // Connect(); the outcome arrives later via OnSteamKitConnected /
         // OnLoginNeeded / OnError, which already toast + update status.
         await _steam.StartSteamKitAuth();
@@ -351,7 +351,7 @@ public partial class MainViewModel : ObservableObject
         CurrentAccountLabel = "Local mode";
         SelectedLocalUser ??= _steam.ActiveLocalUser;
         LoadInstalledGames();
-        StatusMessage = $"Local mode â€” {GamesVm.Games.Count} installed games";
+        StatusMessage = $"Local mode — {GamesVm.Games.Count} installed games";
     }
 
     [RelayCommand]
@@ -366,7 +366,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         UpdateBusy = true;
-        UpdateButtonText = "Checkingâ€¦";
+        UpdateButtonText = "Checking…";
         try
         {
             var info = await _updates.CheckForUpdatesAsync();
@@ -380,7 +380,7 @@ public partial class MainViewModel : ObservableObject
                 _pendingUpdate = info;
                 UpdateButtonText = $"Install {info.Version}";
                 StatusMessage = $"Update available: v{info.Version}";
-                _toast.Show("Updates", $"v{info.Version} available â€” click Install to update.");
+                _toast.Show("Updates", $"v{info.Version} available — click Install to update.");
             }
         }
         catch (Exception ex)
@@ -403,7 +403,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _pendingUpdate = info;
                 UpdateButtonText = $"Install {info.Version}";
-                _toast.Show("Updates", $"v{info.Version} available â€” click Install to update.");
+                _toast.Show("Updates", $"v{info.Version} available — click Install to update.");
             }
         }
         catch
@@ -418,10 +418,10 @@ public partial class MainViewModel : ObservableObject
         try
         {
             var progress = new Progress<double>(p =>
-                StatusMessage = $"Downloading v{info.Version}â€¦ {p:P0}");
-            StatusMessage = $"Downloading v{info.Version}â€¦";
+                StatusMessage = $"Downloading v{info.Version}… {p:P0}");
+            StatusMessage = $"Downloading v{info.Version}…";
             var zip = await _updates.DownloadAsync(info, progress);
-            StatusMessage = "Restarting to installâ€¦";
+            StatusMessage = "Restarting to install…";
             UpdateService.InstallAndRestart(zip);
             System.Windows.Application.Current.Shutdown();
         }

@@ -59,7 +59,6 @@ public partial class MainViewModel : ObservableObject
     }
 
     public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates, ManifestDeXUploadService uploader)
-    public MainViewModel(SteamService steam, LuaExportService export, CoverCache covers, ToastService toast, UpdateService updates)
     {
         _steam = steam;
         _toast = toast;

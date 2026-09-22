@@ -270,9 +270,6 @@ public partial class GamesViewModel : ObservableObject
         }
     }
 
-        }
-    }
-
     private List<SteamGame> _pendingShareGames = [];
     private string _pendingSharePath = "";
     private CancellationTokenSource? _uploadCts;

@@ -39,6 +39,11 @@ public class CoverCache
         $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg";
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
+
+    public CoverCache()
+    {
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("LuaShareX");
+    }
     private readonly SemaphoreSlim _ioGate = new(1, 1);
     private readonly ConcurrentDictionary<uint, Task<string?>> _inFlight = new();
     private readonly ConcurrentDictionary<uint, byte> _noCover = new();

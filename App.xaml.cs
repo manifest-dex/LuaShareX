@@ -20,7 +20,8 @@ public partial class App : Application
         services.AddSingleton<ManifestDeXUploadService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
-        services.AddTransient<GamesViewModel>();
+        // NOTE: GamesViewModel is owned by MainViewModel (new GamesViewModel(...)),
+        // so it is intentionally not registered here to avoid duplicate instances.
         _services = services.BuildServiceProvider();
     }
 

@@ -64,6 +64,10 @@ internal static class Program
         };
 
         var lua = new LuaExportService().Export(game);
+        Check(lua.Contains("-- Downloaded using LuaShareX (https://github.com/manifest-dex/LuaShareX)"),
+            "Export header must point at the GitHub repo.");
+        Check(!lua.Contains("vercel", StringComparison.OrdinalIgnoreCase),
+            "Export must not reference the retired site domain.");
         Check(lua.Contains("addappid(280160, 1, \"60689065685acbd4becba24f4d7ede49cb7af83215cb48666732aa32d6b09133\") --Mainappid Aragami"),
             "A valid base-AppID depot key was not exported.");
         Check(lua.Contains("addtoken(280160, \"18446744073709551615\")"), "A valid UInt64 app token was not exported.");

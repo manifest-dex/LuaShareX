@@ -9,7 +9,8 @@ namespace LuaShareX.Services;
 public class LuaExportService
 {
     private const string BrandName = "LuaShareX";
-    private const string BrandUrl = "https://luasharex.vercel.app";
+    private const string BrandUrl = "https://github.com/manifest-dex/LuaShareX";
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
     private static string Comment(string s) =>
         s.Replace("\r", "").Replace("\n", "");
@@ -89,7 +90,7 @@ public class LuaExportService
 
     public void SaveToFile(string content, string filePath)
     {
-        File.WriteAllText(filePath, content, Encoding.UTF8);
+        File.WriteAllText(filePath, content, Utf8NoBom);
     }
 
     /// <summary>
@@ -101,7 +102,7 @@ public class LuaExportService
         foreach (var game in games)
         {
             var entry = zip.CreateEntry($"{game.AppId}.lua", CompressionLevel.Optimal);
-            using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+            using var writer = new StreamWriter(entry.Open(), Utf8NoBom);
             writer.Write(Export(game));
         }
     }

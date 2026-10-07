@@ -19,7 +19,7 @@ public class ManifestDeXUploadService
     public ManifestDeXUploadService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("LuaShareX", "1.2.5"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("LuaShareX", UpdateService.CurrentVersion.ToString()));
     }
 
     public static string BuildConfirmUrl(string token) =>

@@ -33,6 +33,12 @@ public partial class GamesViewModel : ObservableObject
     [ObservableProperty] private bool _shareDialogIsUploading;
     [ObservableProperty] private double _shareDialogProgress;
     [ObservableProperty] private string _shareDialogStatus = "";
+    [ObservableProperty] private bool _donateMode;
+    [ObservableProperty] private string _shareDialogTitle = "Upload to ManifestDeX";
+    [ObservableProperty] private string _shareDialogMessage = "Upload these luas to ManifestDeX? You will be redirected to manifestdex.com to review and confirm.";
+    [ObservableProperty] private string _shareDialogButtonText = "Upload";
+
+    private List<SteamGame> _pendingDonateGames = [];
 
     partial void OnSearchTextChanged(string value)
     {
@@ -270,6 +276,57 @@ public partial class GamesViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Donates the selected games' depot keys directly to ManifestDeX without
+    /// writing a .lua/.zip file to disk. The keys are zipped in memory, staged
+    /// to ManifestDeX, and the user is redirected to manifestdex.com to review
+    /// and confirm the donation within 24 hours.
+    /// </summary>
+    [RelayCommand]
+    private async Task DonateSelectedAsync()
+    {
+        var selected = Games.Where(t => t.IsSelected).Select(t => t.Game).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "No games selected for donation";
+            _toast.Show("Donate", "No games selected for donation.", error: true);
+            return;
+        }
+
+        IsLoading = true;
+        StatusMessage = $"Fetching keys for {selected.Count} game(s)...";
+        List<(uint depotId, string reason)> keyFailures = [];
+        try
+        {
+            (_, _, _, keyFailures) = await _steam.EnsureExportDataAsync(selected);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Key fetch failed: {ex.Message}";
+            _toast.Show("Donate", $"Key fetch failed: {ex.Message}", error: true);
+            return;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+
+        foreach (var tile in Games.Where(t => t.IsSelected))
+            tile.RefreshFromGame();
+
+        _pendingDonateGames = selected.ToList();
+        DonateMode = true;
+        ShareDialogTitle = "Donate keys to ManifestDeX";
+        ShareDialogMessage = "Donate these depot keys to ManifestDeX? Nothing is saved to disk — you will be redirected to manifestdex.com to review and confirm.";
+        ShareDialogButtonText = "Donate";
+        ShareDialogFileName = $"{selected.Count} game(s)";
+        ShareDialogGameCount = selected.Count;
+        ShareDialogIsUploading = false;
+        ShareDialogProgress = 0;
+        ShareDialogStatus = "";
+        ShowShareDialog = true;
+    }
+
     private List<SteamGame> _pendingShareGames = [];
     private string _pendingSharePath = "";
     private CancellationTokenSource? _uploadCts;
@@ -298,16 +355,18 @@ public partial class GamesViewModel : ObservableObject
             return;
         }
         ShowShareDialog = false;
+        DonateMode = false;
     }
 
     [RelayCommand]
     private async Task ConfirmShareDialogAsync()
     {
-        var selected = _pendingShareGames.ToList();
+        var selected = DonateMode ? _pendingDonateGames : _pendingShareGames.ToList();
         var savedPath = _pendingSharePath;
-        if (selected.Count == 0 || string.IsNullOrWhiteSpace(savedPath))
+        if (selected.Count == 0 || (!DonateMode && string.IsNullOrWhiteSpace(savedPath)))
         {
             ShowShareDialog = false;
+            DonateMode = false;
             return;
         }
 
@@ -320,7 +379,14 @@ public partial class GamesViewModel : ObservableObject
         string? tempZip = null;
         try
         {
-            if (savedPath.EndsWith(".lua", StringComparison.OrdinalIgnoreCase) && selected.Count == 1)
+            if (DonateMode)
+            {
+                // Donating skips the local file: zip the selected keys in memory via a temp file.
+                tempZip = Path.Combine(Path.GetTempPath(), $"luasharex_donate_{Guid.NewGuid():N}.zip");
+                _export.SaveMultipleToZip(selected, tempZip);
+                zipPath = tempZip;
+            }
+            else if (savedPath.EndsWith(".lua", StringComparison.OrdinalIgnoreCase) && selected.Count == 1)
             {
                 tempZip = Path.Combine(Path.GetTempPath(), $"luasharex_share_{selected[0].AppId}_{Guid.NewGuid():N}.zip");
                 using var zip = ZipFile.Open(tempZip, ZipArchiveMode.Create);
@@ -387,6 +453,7 @@ public partial class GamesViewModel : ObservableObject
         {
             _uploadCts?.Dispose();
             _uploadCts = null;
+            DonateMode = false;
             try
             {
                 if (tempZip != null && File.Exists(tempZip)) File.Delete(tempZip);

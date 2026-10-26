@@ -155,6 +155,8 @@
                                 <ui:Button Content="Refresh" Command="{Binding RefreshGamesCommand}" Margin="0,0,4,0" Padding="12,6" />
                                 <ui:Button Content="{Binding SelectAllText}" Command="{Binding ToggleSelectAllCommand}" Margin="0,0,4,0" Padding="12,6" />
                                 <ui:Button Content="{Binding ExportText}" Command="{Binding ExportSelectedCommand}" Padding="12,6" Appearance="Primary" />
+                                <ui:Button Content="Donate keys" Command="{Binding DonateSelectedCommand}" Padding="12,6"
+                                           ToolTip="Donate the selected games' depot keys to ManifestDeX without saving a file locally" />
                             </StackPanel>
                         </Grid>
 
@@ -354,14 +356,14 @@
                     Background="{DynamicResource ApplicationBackgroundBrush}"
                     CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock Text="Upload to ManifestDeX" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding GamesVm.ShareDialogTitle, Mode=OneWay}" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
                     <TextBlock FontSize="12" Foreground="#6b7280" Margin="0,0,0,4" TextWrapping="Wrap">
                         <Run Text="{Binding GamesVm.ShareDialogFileName, Mode=OneWay}" FontWeight="SemiBold" Foreground="#9ca3af" />
                         <Run Text=" (" />
                         <Run Text="{Binding GamesVm.ShareDialogGameCount, Mode=OneWay}" />
                         <Run Text=" game(s))" />
                     </TextBlock>
-                    <TextBlock Text="Upload these luas to ManifestDeX? You will be redirected to manifestdex.com to review and confirm." FontSize="12" Foreground="#6b7280" Margin="0,0,0,12" TextWrapping="Wrap"
+                    <TextBlock Text="{Binding GamesVm.ShareDialogMessage, Mode=OneWay}" FontSize="12" Foreground="#6b7280" Margin="0,0,0,12" TextWrapping="Wrap"
                                Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}}" />
                     <ProgressBar Minimum="0" Maximum="1" Value="{Binding GamesVm.ShareDialogProgress, Mode=OneWay}" Height="6" Margin="0,0,0,8"
                                  Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}}" />
@@ -370,7 +372,7 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <!-- Cancel is always visible: during upload it triggers cancellation via CloseShareDialogCommand -->
                         <ui:Button Content="Cancel" Command="{Binding GamesVm.CloseShareDialogCommand}" Margin="0,0,8,0" />
-                        <ui:Button Content="Upload" Appearance="Primary" Command="{Binding GamesVm.ConfirmShareDialogCommand}"
+                        <ui:Button Content="{Binding GamesVm.ShareDialogButtonText, Mode=OneWay}" Appearance="Primary" Command="{Binding GamesVm.ConfirmShareDialogCommand}"
                                    Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}}" />
                     </StackPanel>
                 </StackPanel>

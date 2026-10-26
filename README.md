@@ -47,6 +47,14 @@ One game exports as `<appid>.lua`; selecting several exports a `.zip` with
 one `<appid>.lua` per game. Depot keys are fetched lazily at export time,
 only for the games you select.
 
+## Donating keys
+
+Instead of saving a `.lua`/`.zip` locally, click **Donate keys** to stage the
+selected games' depot keys directly to ManifestDeX. Nothing is written to
+your disk: the export is zipped in memory, uploaded to ManifestDeX, and you're
+redirected to manifestdex.com to review and confirm the donation within 24
+hours. The confirm link is copied to your clipboard.
+
 ## Build
 
 ```powershell

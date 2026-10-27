@@ -20,7 +20,7 @@
         </Grid.RowDefinitions>
 
         <!-- Title Bar -->
-        <ui:TitleBar Grid.Row="0" Title="" ShowMaximize="False" />
+        <ui:TitleBar Grid.Row="0" Title="LuaShareX" Height="32" ShowMaximize="False" />
 
         <!-- Login Prompt -->
         <Border Grid.Row="1" Visibility="{Binding ShowLoginPrompt, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
@@ -111,7 +111,7 @@
         </Border>
 
         <!-- Games Content -->
-        <ContentControl Grid.Row="1" Content="{Binding GamesVm}" Margin="16,4"
+        <ContentControl Grid.Row="1" Content="{Binding GamesVm}" Margin="16,2"
                         Visibility="{Binding ContentVisible, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
             <ContentControl.Resources>
                 <DataTemplate DataType="{x:Type vm:GamesViewModel}">
@@ -125,8 +125,7 @@
                         </Grid.RowDefinitions>
 
                         <StackPanel Grid.Row="0" Margin="0,0,0,0">
-                            <TextBlock Text="LuaShareX" FontSize="20" FontWeight="Bold" />
-                            <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,1,0,5" />
+                            <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,0,0,4" />
                             <Grid Margin="0,0,0,2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -216,7 +215,7 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border x:Name="TileRoot" Height="196" Margin="0,0,12,12"
+                                        <Border x:Name="TileRoot" Height="180" Margin="0,0,12,12"
                                                 HorizontalAlignment="Stretch" VerticalAlignment="Top"
                                                 CornerRadius="10" Cursor="Hand" Focusable="False"
                                                 UseLayoutRounding="True" SnapsToDevicePixels="True"

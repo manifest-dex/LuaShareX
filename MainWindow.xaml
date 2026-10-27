@@ -111,7 +111,7 @@
         </Border>
 
         <!-- Games Content -->
-        <ContentControl Grid.Row="1" Content="{Binding GamesVm}" Margin="16,8"
+        <ContentControl Grid.Row="1" Content="{Binding GamesVm}" Margin="16,4"
                         Visibility="{Binding ContentVisible, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
             <ContentControl.Resources>
                 <DataTemplate DataType="{x:Type vm:GamesViewModel}">
@@ -124,10 +124,10 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Row="0" Margin="0,0,0,2">
-                            <TextBlock Text="LuaShareX" FontSize="22" FontWeight="Bold" />
-                            <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,2,0,10" />
-                            <Grid Margin="0,0,0,6">
+                        <StackPanel Grid.Row="0" Margin="0,0,0,0">
+                            <TextBlock Text="LuaShareX" FontSize="20" FontWeight="Bold" />
+                            <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,1,0,5" />
+                            <Grid Margin="0,0,0,2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -137,7 +137,7 @@
                                 <ui:Button Grid.Column="1" Content="Switch account" Padding="8,3" Margin="8,0,0,0"
                                            Command="{Binding DataContext.SwitchAccountCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" />
                             </Grid>
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,1,0,0" VerticalAlignment="Center">
                                 <!-- NOTE: this template's DataContext is GamesViewModel; mode controls live on
                                      MainViewModel (the window's DataContext), hence the RelativeSource bindings. -->
                                 <ui:Button Content="Switch to SteamKit" Command="{Binding DataContext.SwitchToSteamKitCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
@@ -150,7 +150,7 @@
                         </StackPanel>
 
                         <!-- Search -->
-                        <Grid Grid.Row="1" Margin="0,0,0,8">
+                        <Grid Grid.Row="1" Margin="0,0,0,4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -160,7 +160,7 @@
                         </Grid>
 
                         <!-- Actions -->
-                        <Grid Grid.Row="2" Margin="0,0,0,8">
+                        <Grid Grid.Row="2" Margin="0,0,0,4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -172,14 +172,12 @@
                                            ToolTip="Donate the selected games' depot keys to ManifestDeX without saving a file locally" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                <ui:Button Content="Test All" Command="{Binding TestAllKeysCommand}" IsEnabled="{Binding HasGames}" Padding="12,6" Margin="0,0,6,0"
-                                           ToolTip="Fetch depot keys for every game in the library and report failures" />
                                 <ui:Button Content="Copy" Command="{Binding CopyToClipboardCommand}" IsEnabled="{Binding HasSelection}" Padding="12,6" />
                             </StackPanel>
                         </Grid>
 
                         <!-- Library summary -->
-                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                        <Grid Grid.Row="3" Margin="0,0,0,4">
                             <TextBlock Text="{Binding LibrarySummary}" FontSize="12" Foreground="#8b95a5" VerticalAlignment="Center" />
                             <TextBlock Text="Select a card to include it in an export." FontSize="11" Foreground="#596273"
                                        HorizontalAlignment="Right" VerticalAlignment="Center"
@@ -282,7 +280,7 @@
                                                         </Border>
                                                     </Grid>
                                                 </Border>
-                                                <StackPanel Margin="12,10,12,12">
+                                                <StackPanel Margin="12,8,12,10">
                                                     <TextBlock FontSize="13.5" FontWeight="SemiBold"
                                                                Text="{Binding Name}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" MaxHeight="40" />
                                                     <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="#6b7280"

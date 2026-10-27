@@ -65,6 +65,11 @@ public partial class MainViewModel : ObservableObject
         _updates = updates;
 
         GamesVm = new GamesViewModel(steam, export, covers, toast, uploader);
+        GamesVm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(GamesViewModel.StatusMessage))
+                StatusMessage = GamesVm.StatusMessage;
+        };
 
         _steam.OnSteamKitConnected += () =>
         {

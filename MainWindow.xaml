@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:LuaShareX.ViewModels"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-        Title="LuaShareX" Width="880" Height="700"
+        Title="LuaShareX" Width="880" Height="700" MinWidth="760" MinHeight="560"
         Icon="Resources/app.ico"
         WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True"
@@ -23,7 +23,7 @@
         <ui:TitleBar Grid.Row="0" Title="" ShowMaximize="False" />
 
         <!-- Login Prompt -->
-        <Border Grid.Row="1" Visibility="{Binding ShowLoginPrompt, Converter={StaticResource BoolToVis}}"
+        <Border Grid.Row="1" Visibility="{Binding ShowLoginPrompt, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
                 Background="{DynamicResource ApplicationBackgroundBrush}"
                 VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="350" Padding="24,20"
                 CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
@@ -64,14 +64,14 @@
                 <ui:Button Content="Use Local Mode Instead" HorizontalAlignment="Stretch"
                           Command="{Binding UseLocalModeCommand}" />
 
-                <TextBlock Text="{Binding LoginStatus}" FontSize="11" Foreground="#ef4444" TextWrapping="Wrap"
+                 <TextBlock Text="{Binding LoginStatus}" FontSize="11" Foreground="#9ca3af" TextWrapping="Wrap"
                            Margin="0,12,0,0" MaxWidth="340" HorizontalAlignment="Center" />
             </StackPanel>
             </ScrollViewer>
         </Border>
 
         <!-- QR Login -->
-        <Border Grid.Row="1" Visibility="{Binding ShowQrLogin, Converter={StaticResource BoolToVis}}"
+        <Border Grid.Row="1" Visibility="{Binding ShowQrLogin, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
                 Background="{DynamicResource ApplicationBackgroundBrush}"
                 VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="320" Padding="24,20"
                 CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
@@ -93,7 +93,7 @@
         </Border>
 
         <!-- Steam Guard Prompt -->
-        <Border Grid.Row="1" Visibility="{Binding ShowGuardPrompt, Converter={StaticResource BoolToVis}}"
+        <Border Grid.Row="1" Visibility="{Binding ShowGuardPrompt, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
                 Background="{DynamicResource ApplicationBackgroundBrush}"
                 VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="320" Padding="24,20"
                 CornerRadius="8" BorderBrush="#22ffffff" BorderThickness="1">
@@ -112,7 +112,7 @@
 
         <!-- Games Content -->
         <ContentControl Grid.Row="1" Content="{Binding GamesVm}" Margin="16,8"
-                        Visibility="{Binding ContentVisible, Converter={StaticResource BoolToVis}}">
+                        Visibility="{Binding ContentVisible, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
             <ContentControl.Resources>
                 <DataTemplate DataType="{x:Type vm:GamesViewModel}">
                     <Grid>
@@ -126,19 +126,23 @@
                         <StackPanel Grid.Row="0" Margin="0,0,0,2">
                             <TextBlock Text="LuaShareX" FontSize="22" FontWeight="Bold" />
                             <TextBlock Text="Export licensed Steam games as Lua files" FontSize="12" Foreground="#6b7280" Margin="0,2,0,10" />
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding DataContext.CurrentAccountLabel, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}"
-                                           VerticalAlignment="Center" FontSize="12" MaxWidth="420" TextTrimming="CharacterEllipsis" />
-                                <ui:Button Content="Switch account" Padding="8,3" Margin="8,0,0,0"
+                                           VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                <ui:Button Grid.Column="1" Content="Switch account" Padding="8,3" Margin="8,0,0,0"
                                            Command="{Binding DataContext.SwitchAccountCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" />
-                            </StackPanel>
+                            </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
                                 <!-- NOTE: this template's DataContext is GamesViewModel; mode controls live on
                                      MainViewModel (the window's DataContext), hence the RelativeSource bindings. -->
                                 <ui:Button Content="Switch to SteamKit" Command="{Binding DataContext.SwitchToSteamKitCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
-                                           Visibility="{Binding DataContext.UseSteamKit, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}, Converter={StaticResource InverseBoolToVis}}" />
+                                            Visibility="{Binding DataContext.UseSteamKit, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}, Converter={StaticResource InverseBoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                                 <ui:Button Content="Logout" Command="{Binding DataContext.LogoutCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
-                                           Visibility="{Binding DataContext.IsLoggedIn, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}, Converter={StaticResource BoolToVis}}" />
+                                            Visibility="{Binding DataContext.IsLoggedIn, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                                 <ui:Button Content="{Binding DataContext.UpdateButtonText, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Command="{Binding DataContext.CheckOrInstallUpdateCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}" Padding="6,2" FontSize="11"
                                            Margin="8,0,0,0" ToolTip="Check for updates on GitHub Releases" />
                             </StackPanel>
@@ -178,7 +182,7 @@
                         </Grid>
 
                         <!-- Loading -->
-                        <Border Grid.Row="3" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}"
+                        <Border Grid.Row="3" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
                                 Background="#80000000" CornerRadius="8" Panel.ZIndex="1"
                                 VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -237,7 +241,7 @@
                                                     <Grid>
                                                         <TextBlock Text="{Binding Initial}" FontSize="38" FontWeight="Bold" Foreground="#3a3f4a"
                                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                   Visibility="{Binding Cover, Converter={StaticResource NullToVis}}" />
+                                                                    Visibility="{Binding Cover, Converter={StaticResource NullToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                                                         <Image Source="{Binding Cover}" Stretch="UniformToFill" />
                                                         <Border x:Name="Check" Width="28" Height="28" Margin="8,8,0,0"
                                                                 HorizontalAlignment="Left" VerticalAlignment="Top"
@@ -299,7 +303,7 @@
         </ContentControl>
 
         <!-- Status Bar -->
-        <Border Grid.Row="2" Background="#08ffffff" BorderBrush="#12ffffff" BorderThickness="0,1,0,0" Padding="16,8">
+         <Border Grid.Row="2" Background="{DynamicResource ApplicationBackgroundBrush}" BorderBrush="#12ffffff" BorderThickness="0,1,0,0" Padding="16,8">
             <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#6b7280" VerticalAlignment="Center" />
         </Border>
 
@@ -350,7 +354,7 @@
 
         <!-- ManifestDeX share dialog (GamesViewModel state). Themed like the login/QR/Guard cards. -->
         <Grid Grid.RowSpan="3" Panel.ZIndex="200"
-              Visibility="{Binding GamesVm.ShowShareDialog, Converter={StaticResource BoolToVis}}">
+              Visibility="{Binding GamesVm.ShowShareDialog, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
             <Border Background="#80000000" />
             <Border VerticalAlignment="Center" HorizontalAlignment="Center" MinWidth="360" MaxWidth="440" Padding="24,20"
                     Background="{DynamicResource ApplicationBackgroundBrush}"
@@ -364,16 +368,16 @@
                         <Run Text=" game(s))" />
                     </TextBlock>
                     <TextBlock Text="{Binding GamesVm.ShareDialogMessage, Mode=OneWay}" FontSize="12" Foreground="#6b7280" Margin="0,0,0,12" TextWrapping="Wrap"
-                               Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}}" />
+                                Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                     <ProgressBar Minimum="0" Maximum="1" Value="{Binding GamesVm.ShareDialogProgress, Mode=OneWay}" Height="6" Margin="0,0,0,8"
-                                 Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}}" />
+                                  Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                     <TextBlock Text="{Binding GamesVm.ShareDialogStatus}" FontSize="11" Foreground="#9ca3af" TextWrapping="Wrap" Margin="0,0,0,12"
-                               Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}}" />
+                                Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <!-- Cancel is always visible: during upload it triggers cancellation via CloseShareDialogCommand -->
                         <ui:Button Content="Cancel" Command="{Binding GamesVm.CloseShareDialogCommand}" Margin="0,0,8,0" />
                         <ui:Button Content="{Binding GamesVm.ShareDialogButtonText, Mode=OneWay}" Appearance="Primary" Command="{Binding GamesVm.ConfirmShareDialogCommand}"
-                                   Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}}" />
+                                   Visibility="{Binding GamesVm.ShareDialogIsUploading, Converter={StaticResource InverseBoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

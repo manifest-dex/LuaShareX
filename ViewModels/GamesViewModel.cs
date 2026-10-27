@@ -64,6 +64,10 @@ public partial class GamesViewModel : ObservableObject
         _coverCts = new CancellationTokenSource();
         var ct = _coverCts.Token;
         _allTiles = games
+            .GroupBy(g => g.AppId)
+            .Select(group => group
+                .OrderByDescending(g => g.Depots.Count)
+                .First())
             .OrderBy(g => g.Name)
             .Select(g =>
             {

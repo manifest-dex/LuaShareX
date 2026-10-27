@@ -29,6 +29,7 @@ internal static class Program
             Run("Unreadable storage is preserved", CorruptStore);
             Run("Retired sessions suppress callbacks, saves and Guard requests", RetiredSession);
             Run("Lua export keeps app tokens separate from depot keys", LuaExportTokens);
+            Run("Installed games are deduplicated across library paths", InstalledGamesDeduplication);
             if (args.Contains("--render")) RenderLogin();
             Console.WriteLine($"PASS: {_passed} checks. Only synthetic account data was used; no Steam connection was opened.");
             return 0;
@@ -76,6 +77,30 @@ internal static class Program
         Check(!new LuaExportService().Export(new SteamGame { AppId = 1, Token = "0" }).Contains("addtoken"),
             "A zero PICS token was exported.");
     }
+
+    private static void InstalledGamesDeduplication()
+    {
+        var steam = Path.Combine(Root, "steam");
+        var apps = Path.Combine(steam, "steamapps");
+        Directory.CreateDirectory(Path.Combine(steam, "config"));
+        Directory.CreateDirectory(apps);
+
+        var escaped = steam.Replace("\\", "\\\\");
+        File.WriteAllText(Path.Combine(steam, "config", "libraryfolders.vdf"),
+            $"\"libraryfolders\" {{ \"0\" {{ \"path\" \"{escaped}\" }} \"1\" {{ \"path\" \"{escaped}\\\\.\" }} }}");
+        File.WriteAllText(Path.Combine(apps, "appmanifest_123.acf"),
+            "\"AppState\" { \"appid\" \"123\" \"name\" \"Synthetic Game\" \"InstalledDepots\" { \"123\" { \"manifest\" \"1\" \"size\" \"1\" } } }");
+
+        var session = new SteamSession(new ToastService(), new SteamTokenStore(Path.Combine(Root, "dedupe-store")));
+        typeof(SteamSession).GetField("_steamInstallPath", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(session, steam);
+        var games = session.GetInstalledGames();
+
+        Check(games.Count == 1 && games[0].AppId == 123,
+            "The same installed app was returned more than once.");
+        session.Disconnect();
+    }
+
     private static string Jwt(string id, long? expiry = null, string audience = "client")
     {
         var payload = JsonSerializer.Serialize(new { sub = id, exp = expiry ?? DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(), aud = new[] { "derive", audience } });

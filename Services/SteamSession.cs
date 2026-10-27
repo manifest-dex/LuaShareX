@@ -351,11 +351,11 @@ internal partial class SteamSession
 
     public List<SteamGame> GetInstalledGames()
     {
-        var games = new List<SteamGame>();
-        if (_steamInstallPath == null) return games;
+        var games = new Dictionary<uint, SteamGame>();
+        if (_steamInstallPath == null) return [];
 
         var libPath = Path.Combine(_steamInstallPath, "config", "libraryfolders.vdf");
-        if (!File.Exists(libPath)) return games;
+        if (!File.Exists(libPath)) return [];
 
         foreach (var lp in ParseLibraryFolders(libPath))
         {
@@ -364,18 +364,31 @@ internal partial class SteamSession
 
             foreach (var acf in Directory.GetFiles(dir, "appmanifest_*.acf"))
             {
-                var game = ParseAppManifest(acf);
-                if (game == null) continue;
-
-                foreach (var depot in game.Depots)
+                try
                 {
-                    var key = GetDepotKey(depot.DepotId);
-                    if (key != null) depot.DepotKey = key;
+                    var game = ParseAppManifest(acf);
+                    if (game == null) continue;
+
+                    foreach (var depot in game.Depots)
+                    {
+                        var key = GetDepotKey(depot.DepotId);
+                        if (key != null) depot.DepotKey = key;
+                    }
+
+                    // The same library can appear more than once in VDF (for
+                    // example, once with forward slashes and once with the
+                    // canonical Windows path), and stale manifests can also
+                    // exist in two libraries. The UI represents one game per
+                    // AppID, so keep the most complete manifest we find.
+                    if (!games.TryGetValue(game.AppId, out var existing)
+                        || game.Depots.Count > existing.Depots.Count)
+                        games[game.AppId] = game;
                 }
-                games.Add(game);
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
         }
-        return games;
+        return games.Values.OrderBy(g => g.Name).ToList();
     }
 
     public List<SteamGame> GetOwnedGames()
@@ -1878,13 +1891,32 @@ internal partial class SteamSession
     private List<string> ParseLibraryFolders(string path)
     {
         var paths = new List<string>();
-        if (_steamInstallPath != null) paths.Add(_steamInstallPath);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var content = File.ReadAllText(path);
+        void AddPath(string candidate)
+        {
+            try
+            {
+                var fullPath = Path.GetFullPath(candidate);
+                var comparisonPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (Directory.Exists(fullPath) && seen.Add(comparisonPath))
+                    paths.Add(fullPath);
+            }
+            catch (IOException) { }
+            catch (ArgumentException) { }
+        }
+
+        if (_steamInstallPath != null) AddPath(_steamInstallPath);
+
+        string content;
+        try { content = File.ReadAllText(path); }
+        catch (IOException) { return paths; }
+        catch (UnauthorizedAccessException) { return paths; }
+
         foreach (Match m in LibraryPathRegex().Matches(content))
         {
             var p = m.Groups[1].Value.Replace("\\\\", "\\");
-            if (!paths.Contains(p) && Directory.Exists(p)) paths.Add(p);
+            AddPath(p);
         }
         return paths;
     }

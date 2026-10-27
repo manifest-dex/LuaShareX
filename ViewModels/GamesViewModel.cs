@@ -25,6 +25,11 @@ public partial class GamesViewModel : ObservableObject
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _statusMessage = "";
     [ObservableProperty] private int _selectedCount;
+    [ObservableProperty] private bool _hasGames;
+    [ObservableProperty] private bool _hasSelection;
+    [ObservableProperty] private bool _showEmptyState;
+    [ObservableProperty] private string _emptyStateMessage = "No games found.";
+    [ObservableProperty] private string _librarySummary = "0 games";
     [ObservableProperty] private string _selectAllText = "Select All";
     [ObservableProperty] private string _exportText = "Export .lua";
     [ObservableProperty] private bool _showShareDialog;
@@ -82,7 +87,14 @@ public partial class GamesViewModel : ObservableObject
         foreach (var tile in _allTiles)
             Games.Add(tile);
 
-        UpdateSelectedCount();
+        ShowEmptyState = _allTiles.Count == 0;
+        EmptyStateMessage = ShowEmptyState
+            ? "No installed games found. Try Refresh or switch to SteamKit mode."
+            : "No games match your search.";
+        if (!string.IsNullOrWhiteSpace(SearchText))
+            FilterGames();
+        else
+            UpdateSelectedCount();
         _ = PrefetchCoversAsync(_allTiles, ct);
     }
 
@@ -143,6 +155,10 @@ public partial class GamesViewModel : ObservableObject
         foreach (var tile in filtered.OrderBy(t => t.Name))
             Games.Add(tile);
 
+        ShowEmptyState = Games.Count == 0;
+        EmptyStateMessage = _allTiles.Count == 0
+            ? "No installed games found. Try Refresh or switch to SteamKit mode."
+            : "No games match your search.";
         UpdateSelectedCount();
     }
 
@@ -193,6 +209,11 @@ public partial class GamesViewModel : ObservableObject
     private void UpdateSelectedCount()
     {
         SelectedCount = _allTiles.Count(t => t.IsSelected);
+        HasGames = _allTiles.Count > 0;
+        HasSelection = SelectedCount > 0;
+        LibrarySummary = HasGames
+            ? $"{_allTiles.Count} game{(_allTiles.Count == 1 ? "" : "s")} · {SelectedCount} selected"
+            : "No games loaded";
         SelectAllText = Games.Count > 0 && Games.All(t => t.IsSelected)
             ? "Unselect All"
             : "Select All";

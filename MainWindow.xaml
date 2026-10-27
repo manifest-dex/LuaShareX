@@ -120,6 +120,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
@@ -148,41 +149,45 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Search + Actions -->
+                        <!-- Search -->
                         <Grid Grid.Row="1" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <ui:TextBox Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Search games..." Margin="0,0,8,0" />
-                            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                <ui:Button Content="Refresh" Command="{Binding RefreshGamesCommand}" Margin="0,0,4,0" Padding="12,6" />
-                                <ui:Button Content="{Binding SelectAllText}" Command="{Binding ToggleSelectAllCommand}" Margin="0,0,4,0" Padding="12,6" />
-                                <ui:Button Content="{Binding ExportText}" Command="{Binding ExportSelectedCommand}" Padding="12,6" Appearance="Primary" />
-                                <ui:Button Content="Donate keys" Command="{Binding DonateSelectedCommand}" Padding="12,6"
-                                           ToolTip="Donate the selected games' depot keys to ManifestDeX without saving a file locally" />
-                            </StackPanel>
+                            <ui:TextBox Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Search games by name..." Margin="0,0,8,0" />
+                            <ui:Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshGamesCommand}" Padding="14,6" />
                         </Grid>
 
-                        <!-- Selected count -->
+                        <!-- Actions -->
                         <Grid Grid.Row="2" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="#6b7280">
-                                <Run Text="{Binding SelectedCount, Mode=OneWay}" />
-                                <Run Text=" selected" />
-                            </TextBlock>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Content="{Binding SelectAllText}" Command="{Binding ToggleSelectAllCommand}" Padding="12,6" Margin="0,0,6,0" />
+                                <ui:Button Content="{Binding ExportText}" Command="{Binding ExportSelectedCommand}" IsEnabled="{Binding HasSelection}" Padding="14,6" Appearance="Primary" />
+                                <ui:Button Content="Donate keys" Command="{Binding DonateSelectedCommand}" IsEnabled="{Binding HasSelection}" Padding="12,6" Margin="6,0,0,0"
+                                           ToolTip="Donate the selected games' depot keys to ManifestDeX without saving a file locally" />
+                            </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                <ui:Button Content="Test All" Command="{Binding TestAllKeysCommand}" Padding="12,6" Margin="0,0,4,0"
+                                <ui:Button Content="Test All" Command="{Binding TestAllKeysCommand}" IsEnabled="{Binding HasGames}" Padding="12,6" Margin="0,0,6,0"
                                            ToolTip="Fetch depot keys for every game in the library and report failures" />
-                                <ui:Button Content="Copy" Command="{Binding CopyToClipboardCommand}" Padding="12,6" />
+                                <ui:Button Content="Copy" Command="{Binding CopyToClipboardCommand}" IsEnabled="{Binding HasSelection}" Padding="12,6" />
                             </StackPanel>
                         </Grid>
 
+                        <!-- Library summary -->
+                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                            <TextBlock Text="{Binding LibrarySummary}" FontSize="12" Foreground="#8b95a5" VerticalAlignment="Center" />
+                            <TextBlock Text="Select a card to include it in an export." FontSize="11" Foreground="#596273"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Visibility="{Binding HasGames, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}" />
+                        </Grid>
+
                         <!-- Loading -->
-                        <Border Grid.Row="3" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
+                        <Border Grid.Row="4" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
                                 Background="#80000000" CornerRadius="8" Panel.ZIndex="1"
                                 VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -191,9 +196,20 @@
                             </StackPanel>
                         </Border>
 
+                        <Border Grid.Row="4" Visibility="{Binding ShowEmptyState, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
+                                Background="#0DFFFFFF" BorderBrush="#18FFFFFF" BorderThickness="1" CornerRadius="10"
+                                Padding="28" Margin="0,0,12,12" Panel.ZIndex="1">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="460">
+                                <TextBlock Text="⌕" FontSize="34" Foreground="#6b7280" HorizontalAlignment="Center" Margin="0,0,0,10" />
+                                <TextBlock Text="Nothing to show" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding EmptyStateMessage}" FontSize="12" Foreground="#8b95a5" TextWrapping="Wrap"
+                                           TextAlignment="Center" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+
                         <!-- Games Grid (Manage-style tiles: plain Borders, not buttons,
-                             so Tab skips the grid instead of stopping on every card) -->
-                        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                              so Tab skips the grid instead of stopping on every card) -->
+                        <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <ItemsControl x:Name="TileGrid" ItemsSource="{Binding Games}" KeyboardNavigation.TabNavigation="Once">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -308,7 +324,7 @@
         </Border>
 
         <!-- Bottom-right toast stack (MainViewModel.Toasts). Several can show at once. -->
-        <ItemsControl Grid.RowSpan="3" Margin="0,0,24,18"
+        <ItemsControl Grid.Row="1" Margin="0,0,20,14"
                       HorizontalAlignment="Right" VerticalAlignment="Bottom"
                       Panel.ZIndex="100" Focusable="False"
                       ItemsSource="{Binding Toasts.Toasts}">
@@ -319,7 +335,7 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border Width="330" Margin="0,6,0,0" Padding="12,10" CornerRadius="8"
+                    <Border Width="300" Margin="0,6,0,0" Padding="12,10" CornerRadius="8"
                             Background="#E8141418" BorderThickness="1">
                         <Border.Style>
                             <Style TargetType="Border">
